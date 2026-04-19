@@ -42,7 +42,7 @@ defmodule MultiplayerFabricDeploy do
 
   defp handle_event(%{running: false} = state, %ExRatatui.Event.Key{code: "enter"}) do
     task = Enum.at(state.tasks, state.selected)
-    Runner.start_async(task.script, self())
+    Runner.start_async(task, self())
     %{state | running: true, log: ["Running: #{task.name}...", ""]}
   end
 
