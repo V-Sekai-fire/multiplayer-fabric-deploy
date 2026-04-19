@@ -4,11 +4,11 @@ defmodule MultiplayerFabricDeploy.MixProject do
   def project do
     [
       app: :multiplayer_fabric_deploy,
-      version: "0.1.0",
+      version: "0.3.0",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      aliases: aliases()
+      releases: releases()
     ]
   end
 
@@ -16,8 +16,12 @@ defmodule MultiplayerFabricDeploy.MixProject do
     [extra_applications: [:logger]]
   end
 
-  defp aliases do
-    [run: ["run -e \"MultiplayerFabricDeploy.main([])\""]
+  defp releases do
+    [
+      multiplayer_fabric_deploy: [
+        steps: [:assemble],
+        strip_beams: true
+      ]
     ]
   end
 
