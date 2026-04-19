@@ -51,7 +51,8 @@ defmodule MultiplayerFabricDeploy do
   defp collect_output(state) do
     receive do
       {:output_line, line} ->
-        collect_output(%{state | log: state.log ++ [line]})
+        log = Enum.take(state.log ++ [line], -1000)
+        collect_output(%{state | log: log})
 
       {:task_done, 0} ->
         %{state | running: false, log: state.log ++ ["", "✓ Done"]}

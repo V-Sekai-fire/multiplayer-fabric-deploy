@@ -27,12 +27,13 @@ defmodule MultiplayerFabricDeploy.Tui do
       block: %Block{title: list_title, borders: [:all], border_type: :rounded}
     }
 
-    log_lines = Enum.take(state.log, -(content_height - 2))
+    visible_lines = content_height - 2
+    log_lines = Enum.take(state.log, -1000) |> Enum.take(-visible_lines)
     log_text = Enum.join(log_lines, "\n")
 
     log_widget = %Paragraph{
       text: log_text,
-      wrap: true,
+      wrap: false,
       block: %Block{title: " Output ", borders: [:all], border_type: :rounded}
     }
 

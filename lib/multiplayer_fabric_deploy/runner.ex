@@ -35,11 +35,11 @@ defmodule MultiplayerFabricDeploy.Runner do
   defp stream_output(port, parent) do
     receive do
       {^port, {:data, {:eol, line}}} ->
-        send(parent, {:output_line, line})
+        line |> String.split("\r") |> List.last() |> then(&send(parent, {:output_line, &1}))
         stream_output(port, parent)
 
       {^port, {:data, {:noeol, partial}}} ->
-        send(parent, {:output_line, partial})
+        partial |> String.split("\r") |> List.last() |> then(&send(parent, {:output_line, &1}))
         stream_output(port, parent)
 
       {^port, {:exit_status, code}} ->
