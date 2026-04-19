@@ -2,6 +2,6 @@
 /deps/
 /priv/static/
 *.ez
-multiplayer_fabric_deploy
+/multiplayer_fabric_deploy
 erl_crash.dump
 *.beam
