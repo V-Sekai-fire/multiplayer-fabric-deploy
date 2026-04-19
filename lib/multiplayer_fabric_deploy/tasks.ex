@@ -215,7 +215,11 @@ defmodule MultiplayerFabricDeploy.Tasks do
 
   defp fetch_openjdk_script do
     """
-    if [ ! -d "${JAVA_HOME}" ]; then
+    if [ "$(uname)" = "Darwin" ]; then
+        if ! /usr/libexec/java_home -v 17 >/dev/null 2>&1; then
+            brew install --cask temurin@17
+        fi
+    elif [ ! -d "${JAVA_HOME}" ]; then
         curl --fail --location --silent --show-error \
           "https://github.com/adoptium/temurin17-binaries/releases/download/jdk-17.0.11%2B9/OpenJDK17U-jdk_$(uname -m | sed -e s/86_//g)_linux_hotspot_17.0.11_9.tar.gz" \
           --output jdk.tar.gz
@@ -238,15 +242,21 @@ defmodule MultiplayerFabricDeploy.Tasks do
   end
 
   defp setup_android_sdk_script do
-    ct = Config.cmdlinetools()
+    ct_linux = Config.cmdlinetools()
+    ct_macos = String.replace(ct_linux, "linux", "mac")
 
     """
+    if [ "$(uname)" = "Darwin" ]; then
+        CT_ZIP="#{ct_macos}"
+    else
+        CT_ZIP="#{ct_linux}"
+    fi
     if [ ! -d "${ANDROID_SDK_ROOT}" ]; then
         mkdir -p ${ANDROID_SDK_ROOT}
-        if [ ! -d "${WORLD_PWD}/#{ct}" ]; then
-            curl -LO https://dl.google.com/android/repository/#{ct} -o ${WORLD_PWD}/#{ct}
-            cd ${WORLD_PWD} && unzip -o ${WORLD_PWD}/#{ct}
-            rm ${WORLD_PWD}/#{ct}
+        if [ ! -d "${WORLD_PWD}/cmdline-tools" ]; then
+            curl -LO https://dl.google.com/android/repository/${CT_ZIP} -o ${WORLD_PWD}/${CT_ZIP}
+            cd ${WORLD_PWD} && unzip -o ${WORLD_PWD}/${CT_ZIP}
+            rm ${WORLD_PWD}/${CT_ZIP}
             yes | ${WORLD_PWD}/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_SDK_ROOT} --licenses
             yes | ${WORLD_PWD}/cmdline-tools/bin/sdkmanager --sdk_root=${ANDROID_SDK_ROOT} \
               "ndk;${ANDROID_NDK_VERSION}" 'cmdline-tools;latest' 'build-tools;34.0.0' 'platforms;android-34' 'cmake;3.22.1'
