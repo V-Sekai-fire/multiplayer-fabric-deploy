@@ -153,16 +153,16 @@ defmodule MultiplayerFabricDeploy.Tasks do
 
     result =
       if File.dir?(Path.join(path, ".git")) do
-        send(parent, {:output_line, "Opening #{path}..."})
+        send(parent, {:output_line, "Opening #{path} (#{url})..."})
 
         with {:open, repo} when not is_tuple(repo) <- {:open, :git.open(path)},
-             _ = send(parent, {:output_line, "Fetching origin..."}),
+             _ = send(parent, {:output_line, "Fetching origin (#{url})..."}),
              {:fetch, :ok} <- {:fetch, :git.fetch(repo)},
              _ = send(parent, {:output_line, "Checking out #{branch}..."}),
              {:checkout, :ok} <- {:checkout, :git.checkout(repo, branch)},
-             _ = send(parent, {:output_line, "Pulling..."}),
+             _ = send(parent, {:output_line, "Pulling #{url}@#{branch}..."}),
              {:pull, :ok} <- {:pull, :git.pull(repo)} do
-          send(parent, {:output_line, "Up to date on #{branch}"})
+          send(parent, {:output_line, "Up to date: #{url}@#{branch}"})
           :ok
         else
           {step, {:error, reason}} -> {:error, "#{step} failed: #{inspect(reason)}"}
