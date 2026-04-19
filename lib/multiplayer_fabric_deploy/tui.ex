@@ -3,6 +3,7 @@ defmodule MultiplayerFabricDeploy.Tui do
   alias ExRatatui.Layout.Rect
 
   @keybindings " [↑/↓] navigate   [Enter] run   [q] quit"
+  @spinner_frames ~w(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 
   def render(terminal, state) do
     {w, h} = ExRatatui.terminal_size()
@@ -16,9 +17,12 @@ defmodule MultiplayerFabricDeploy.Tui do
     selected_task = Enum.at(state.tasks, state.selected)
 
     list_title =
-      if state.running,
-        do: " Tasks (running...) ",
-        else: " Tasks "
+      if state.running do
+        frame = Enum.at(@spinner_frames, rem(state.tick, length(@spinner_frames)))
+        " Tasks #{frame} "
+      else
+        " Tasks "
+      end
 
     task_list = %List{
       items: task_names,

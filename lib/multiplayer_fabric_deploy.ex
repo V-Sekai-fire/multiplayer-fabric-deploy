@@ -11,7 +11,8 @@ defmodule MultiplayerFabricDeploy do
         log: ["Multiplayer Fabric Deploy", "Select a task and press Enter."],
         running: false,
         current_task: nil,
-        quit: false
+        quit: false,
+        tick: 0
       }
 
       loop(terminal, state)
@@ -27,6 +28,7 @@ defmodule MultiplayerFabricDeploy do
     state
     |> handle_event(event)
     |> collect_output()
+    |> tick()
     |> then(fn s ->
       if s.quit, do: :ok, else: loop(terminal, s)
     end)
@@ -50,6 +52,9 @@ defmodule MultiplayerFabricDeploy do
   end
 
   defp handle_event(state, _), do: state
+
+  defp tick(%{running: true} = state), do: %{state | tick: state.tick + 1}
+  defp tick(state), do: %{state | tick: 0}
 
   defp collect_output(state) do
     receive do
