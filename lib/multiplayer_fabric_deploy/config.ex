@@ -26,13 +26,13 @@ defmodule MultiplayerFabricDeploy.Config do
   def cmdlinetools, do: "commandlinetools-linux-11076708_latest.zip"
 
   def arm64_root, do: Path.join(world_pwd(), "aarch64-godot-linux-gnu_sdk-buildroot")
-  def android_sdk_root, do: Path.join(world_pwd(), "android_sdk")
+  def android_sdk_root, do: Path.join(data_dir(), "android_sdk")
   def android_home, do: android_sdk_root()
-  def java_home, do: Path.join(world_pwd(), "jdk")
-  def vulkan_sdk_root, do: Path.join(world_pwd(), "vulkan_sdk/")
-  def emsdk_root, do: Path.join(world_pwd(), "emsdk")
+  def java_home, do: Path.join(data_dir(), "jdk")
+  def vulkan_sdk_root, do: Path.join(data_dir(), "vulkan_sdk")
+  def emsdk_root, do: Path.join(data_dir(), "emsdk")
   def osxcross_root, do: Path.join(world_pwd(), "osxcross")
-  def mingw_prefix, do: Path.join(world_pwd(), "mingw")
+  def mingw_prefix, do: Path.join(data_dir(), "mingw")
 
   def env_vars do
     [
