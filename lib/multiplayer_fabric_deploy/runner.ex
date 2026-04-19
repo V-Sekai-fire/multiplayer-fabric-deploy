@@ -30,6 +30,14 @@ defmodule MultiplayerFabricDeploy.Runner do
     end)
   end
 
+  def run_bash_sync(script, parent) do
+    env_list =
+      Config.env_vars()
+      |> Enum.map(fn {k, v} -> {to_charlist(k), to_charlist(v)} end)
+
+    run_bash(script, env_list, parent)
+  end
+
   defp run_bash(script, env_list, parent) do
     bash = System.find_executable("bash") || "/bin/bash"
 
@@ -39,6 +47,7 @@ defmodule MultiplayerFabricDeploy.Runner do
         [
           :binary,
           :exit_status,
+          :stderr_to_stdout,
           {:line, 4096},
           {:env, env_list},
           {:args, ["-c", script]}

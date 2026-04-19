@@ -9,7 +9,10 @@ defmodule MultiplayerFabricDeploy.Tasks do
         id: :run_all,
         name: "run-all",
         desc: "Run all setup steps and build macOS template_release",
-        run: {:bash, run_all_script()}
+        run: {:elixir, fn parent ->
+          fetch_godot(parent)
+          MultiplayerFabricDeploy.Runner.run_bash_sync(run_all_bash_script(), parent)
+        end}
       },
       %__MODULE__{
         id: :fetch_godot,
@@ -168,7 +171,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
     send(parent, {:task_done, 0})
   end
 
-  defp run_all_script do
+  defp run_all_bash_script do
     """
     set -e
     #{fetch_openjdk_script()}
