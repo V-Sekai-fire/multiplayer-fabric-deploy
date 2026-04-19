@@ -1,7 +1,7 @@
 defmodule MultiplayerFabricDeploy.Tasks do
   alias MultiplayerFabricDeploy.Config
 
-  defstruct [:id, :name, :desc, :script]
+  defstruct [:id, :name, :desc, :run]
 
   def all do
     [
@@ -9,144 +9,168 @@ defmodule MultiplayerFabricDeploy.Tasks do
         id: :run_all,
         name: "run-all",
         desc: "Run all setup steps and build macOS template_release",
-        script: run_all_script()
+        run: {:bash, run_all_script()}
       },
       %__MODULE__{
         id: :fetch_godot,
         name: "fetch-godot",
         desc: "Clone or update #{Config.godot_git_url()} @ #{Config.godot_branch()}",
-        script: fetch_godot_script()
+        run: {:elixir, &fetch_godot/1}
       },
       %__MODULE__{
         id: :fetch_openjdk,
         name: "fetch-openjdk",
         desc: "Download OpenJDK 17 for Android builds",
-        script: fetch_openjdk_script()
+        run: {:bash, fetch_openjdk_script()}
       },
       %__MODULE__{
         id: :fetch_vulkan_sdk,
         name: "fetch-vulkan-sdk",
         desc: "Download MoltenVK for macOS/iOS builds",
-        script: fetch_vulkan_sdk_script()
+        run: {:bash, fetch_vulkan_sdk_script()}
       },
       %__MODULE__{
         id: :setup_android_sdk,
         name: "setup-android-sdk",
         desc: "Install Android SDK, NDK #{Config.android_ndk_version()}, and build tools",
-        script: setup_android_sdk_script()
+        run: {:bash, setup_android_sdk_script()}
       },
       %__MODULE__{
         id: :setup_emscripten,
         name: "setup-emscripten",
         desc: "Clone emsdk and activate Emscripten 4.0.11",
-        script: setup_emscripten_script()
+        run: {:bash, setup_emscripten_script()}
       },
       %__MODULE__{
         id: :fetch_llvm_mingw,
         name: "fetch-llvm-mingw",
         desc: "Download llvm-mingw toolchain for Linux hosts (Windows cross-compile)",
-        script: fetch_llvm_mingw_script()
+        run: {:bash, fetch_llvm_mingw_script()}
       },
       %__MODULE__{
         id: :fetch_llvm_mingw_macos,
         name: "fetch-llvm-mingw-macos",
         desc: "Download llvm-mingw toolchain for macOS hosts (Windows cross-compile)",
-        script: fetch_llvm_mingw_macos_script()
+        run: {:bash, fetch_llvm_mingw_macos_script()}
       },
       %__MODULE__{
         id: :setup_arm64,
         name: "setup-arm64",
         desc: "Download and relocate aarch64 Godot buildroot toolchain",
-        script: setup_arm64_script()
+        run: {:bash, setup_arm64_script()}
       },
       %__MODULE__{
         id: :build_osxcross,
         name: "build-osxcross",
         desc: "Clone osxcross and build macOS SDK cross-compiler",
-        script: build_osxcross_script()
+        run: {:bash, build_osxcross_script()}
       },
       %__MODULE__{
         id: :setup_rust,
         name: "setup-rust",
         desc: "Install Rust nightly with all cross-compile targets",
-        script: setup_rust_script()
+        run: {:bash, setup_rust_script()}
       },
       %__MODULE__{
         id: :setup_d3d12,
         name: "setup-d3d12",
         desc: "Install D3D12/Mesa/AgilitySdk for Windows builds",
-        script: setup_d3d12_script()
+        run: {:bash, setup_d3d12_script()}
       },
       %__MODULE__{
         id: :deploy_osxcross,
         name: "deploy-osxcross",
         desc: "Generate macOS SDK package via osxcross tools",
-        script: deploy_osxcross_script()
+        run: {:bash, deploy_osxcross_script()}
       },
       %__MODULE__{
         id: :install_packages,
         name: "install-packages",
         desc: "Install system build dependencies (dnf or apt)",
-        script: install_packages_script()
+        run: {:bash, install_packages_script()}
       },
       %__MODULE__{
         id: :prepare_exports,
         name: "prepare-exports",
         desc: "Clear and recreate export_windows / export_linuxbsd directories",
-        script: "rm -rf export_windows export_linuxbsd && mkdir -p export_windows export_linuxbsd"
+        run: {:bash, "rm -rf export_windows export_linuxbsd && mkdir -p export_windows export_linuxbsd"}
       },
       %__MODULE__{
         id: :copy_binaries,
         name: "copy-binaries",
         desc: "Copy built templates to export directories",
-        script: """
+        run: {:bash, """
         cp templates/windows_release_x86_64.exe export_windows/multiplayer_fabric_windows.exe
         cp templates/linux_release.x86_64 export_linuxbsd/multiplayer_fabric_linuxbsd
-        """
+        """}
       },
       %__MODULE__{
         id: :generate_build_constants,
         name: "generate-build-constants",
         desc: "Write build_constants.gd with label, date, and unix timestamp",
-        script: generate_build_constants_script()
+        run: {:bash, generate_build_constants_script()}
       },
       %__MODULE__{
         id: :build_macos_template,
         name: "build-macos-template",
         desc: "Build macOS template_release (double precision)",
-        script: build_platform_script("macos", "template_release")
+        run: {:bash, build_platform_script("macos", "template_release")}
       },
       %__MODULE__{
         id: :build_linuxbsd_editor,
         name: "build-linuxbsd-editor",
         desc: "Build Linux/BSD editor (double precision)",
-        script: build_platform_script("linuxbsd", "editor")
+        run: {:bash, build_platform_script("linuxbsd", "editor")}
       },
       %__MODULE__{
         id: :build_windows_template,
         name: "build-windows-template",
         desc: "Build Windows template_release via llvm-mingw",
-        script: build_platform_script("windows", "template_release")
+        run: {:bash, build_platform_script("windows", "template_release")}
       },
       %__MODULE__{
         id: :build_android_template,
         name: "build-android-template",
         desc: "Build Android template_release (arm64)",
-        script: build_platform_script("android", "template_release", "arm64")
+        run: {:bash, build_platform_script("android", "template_release", "arm64")}
       },
       %__MODULE__{
         id: :build_web_template,
         name: "build-web-template",
         desc: "Build Web template_release with dlink and Emscripten",
-        script: build_platform_script("web", "template_release")
+        run: {:bash, build_platform_script("web", "template_release")}
       }
     ]
+  end
+
+  def fetch_godot(parent) do
+    url = Config.godot_git_url()
+    branch = Config.godot_branch()
+    path = Path.join(Config.world_pwd(), "godot")
+
+    if File.dir?(Path.join(path, ".git")) do
+      send(parent, {:output_line, "Opening existing repo at #{path}..."})
+      repo = :git.open(path)
+      send(parent, {:output_line, "Fetching origin..."})
+      :git.fetch(repo)
+      send(parent, {:output_line, "Checking out #{branch}..."})
+      :git.checkout(repo, branch)
+      send(parent, {:output_line, "Pulling..."})
+      :git.pull(repo)
+      send(parent, {:output_line, "Up to date on #{branch}"})
+    else
+      send(parent, {:output_line, "Cloning #{url} @ #{branch} into #{path}..."})
+      repo = :git.clone(url, path)
+      :git.checkout(repo, branch)
+      send(parent, {:output_line, "Clone complete"})
+    end
+
+    send(parent, {:task_done, 0})
   end
 
   defp run_all_script do
     """
     set -e
-    #{fetch_godot_script()}
     #{fetch_openjdk_script()}
     #{setup_android_sdk_script()}
     #{setup_emscripten_script()}
@@ -155,19 +179,6 @@ defmodule MultiplayerFabricDeploy.Tasks do
     #{fetch_vulkan_sdk_script()}
     #{build_platform_script("macos", "template_release")}
     echo "run-all: Success!"
-    """
-  end
-
-  defp fetch_godot_script do
-    """
-    if [ ! -d "${WORLD_PWD}/godot" ]; then
-        git clone --branch ${GODOT_BRANCH} ${GODOT_GIT_URL} ${WORLD_PWD}/godot
-    else
-        cd ${WORLD_PWD}/godot
-        git fetch origin
-        git checkout ${GODOT_BRANCH}
-        git pull --ff-only origin ${GODOT_BRANCH}
-    fi
     """
   end
 

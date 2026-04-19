@@ -4,7 +4,7 @@ defmodule MultiplayerFabricDeploy.MixProject do
   def project do
     [
       app: :multiplayer_fabric_deploy,
-      version: "0.3.1",
+      version: "0.4.0",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -27,7 +27,8 @@ defmodule MultiplayerFabricDeploy.MixProject do
 
   defp deps do
     [
-      {:ex_ratatui, "~> 0.7"}
+      {:ex_ratatui, "~> 0.7"},
+      {:egit, "~> 0.1"}
     ]
   end
 end

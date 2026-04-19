@@ -2,19 +2,35 @@ defmodule MultiplayerFabricDeploy.Runner do
   alias MultiplayerFabricDeploy.Config
 
   @doc """
-  Spawns a bash script asynchronously. Sends messages to `parent`:
+  Spawns a task asynchronously. `task.run` is either:
+    - `{:bash, script}` — runs a bash script
+    - `{:elixir, fun}` — calls `fun.(parent)` directly
+
+  Sends to `parent`:
     {:output_line, String.t()}
     {:task_done, exit_code :: non_neg_integer()}
   """
-  def start_async(script, parent) do
+  def start_async(%{run: {:bash, script}}, parent) do
     env_list =
       Config.env_vars()
       |> Enum.map(fn {k, v} -> {to_charlist(k), to_charlist(v)} end)
 
-    spawn(fn -> execute(script, env_list, parent) end)
+    spawn(fn -> run_bash(script, env_list, parent) end)
   end
 
-  defp execute(script, env_list, parent) do
+  def start_async(%{run: {:elixir, fun}}, parent) do
+    spawn(fn ->
+      try do
+        fun.(parent)
+      rescue
+        e ->
+          send(parent, {:output_line, "Error: #{Exception.message(e)}"})
+          send(parent, {:task_done, 1})
+      end
+    end)
+  end
+
+  defp run_bash(script, env_list, parent) do
     bash = System.find_executable("bash") || "/bin/bash"
 
     port =
