@@ -4,7 +4,7 @@ defmodule MultiplayerFabricDeploy.MixProject do
   def project do
     [
       app: :multiplayer_fabric_deploy,
-      version: "0.4.2",
+      version: "0.4.3",
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),

@@ -1,6 +1,9 @@
 defmodule MultiplayerFabricDeploy.Config do
   def world_pwd, do: File.cwd!()
 
+  def data_dir, do: Path.join(System.user_home!(), ".multiplayer-fabric-deploy")
+  def logs_dir, do: Path.join(data_dir(), "logs")
+
   def operating_system do
     case :os.type() do
       {:unix, :darwin} -> "macos"

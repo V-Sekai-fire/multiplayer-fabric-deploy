@@ -1,13 +1,16 @@
 defmodule MultiplayerFabricDeploy do
-  alias MultiplayerFabricDeploy.{Runner, Tasks, Tui}
+  alias MultiplayerFabricDeploy.{Config, Runner, Tasks, Tui}
 
   def main(_args) do
+    File.mkdir_p!(Config.logs_dir())
+
     ExRatatui.run(fn terminal ->
       state = %{
         selected: 0,
         tasks: Tasks.all(),
         log: ["Multiplayer Fabric Deploy", "Select a task and press Enter."],
         running: false,
+        current_task: nil,
         quit: false
       }
 
@@ -43,7 +46,7 @@ defmodule MultiplayerFabricDeploy do
   defp handle_event(%{running: false} = state, %ExRatatui.Event.Key{code: "enter"}) do
     task = Enum.at(state.tasks, state.selected)
     Runner.start_async(task, self())
-    %{state | running: true, log: ["Running: #{task.name}...", ""]}
+    %{state | running: true, current_task: task, log: ["Running: #{task.name}...", ""]}
   end
 
   defp handle_event(state, _), do: state
@@ -54,13 +57,25 @@ defmodule MultiplayerFabricDeploy do
         log = Enum.take(state.log ++ [line], -1000)
         collect_output(%{state | log: log})
 
-      {:task_done, 0} ->
-        %{state | running: false, log: state.log ++ ["", "✓ Done"]}
-
       {:task_done, code} ->
-        %{state | running: false, log: state.log ++ ["", "✗ Failed (exit #{code})"]}
+        status = if code == 0, do: "✓ Done", else: "✗ Failed (exit #{code})"
+        log = state.log ++ ["", status]
+        write_log(state.current_task, log, code)
+        %{state | running: false, current_task: nil, log: log}
     after
       0 -> state
     end
+  end
+
+  defp write_log(nil, _log, _code), do: :ok
+
+  defp write_log(task, log, code) do
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601() |> String.replace(":", "-")
+    status = if code == 0, do: "ok", else: "fail"
+    filename = "#{timestamp}-#{task.name}-#{status}.log"
+    path = Path.join(Config.logs_dir(), filename)
+
+    content = Enum.join(log, "\n")
+    File.write!(path, content)
   end
 end
