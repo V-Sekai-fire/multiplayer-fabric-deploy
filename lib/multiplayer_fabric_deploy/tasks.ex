@@ -149,7 +149,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
   def fetch_godot(parent) do
     url = Config.godot_git_url()
     branch = Config.godot_branch()
-    path = Path.join(Config.world_pwd(), "godot")
+    path = Config.godot_dir()
 
     result =
       if File.dir?(Path.join(path, ".git")) do
@@ -319,7 +319,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
 
   defp setup_d3d12_script do
     """
-    cd ${WORLD_PWD}/godot
+    cd ${GODOT_DIR}
     if [ ! -d "bin/build_deps/mesa" ] || [ ! -d "bin/build_deps/agility_sdk" ]; then
         python3 misc/scripts/install_d3d12_sdk_windows.py --mingw_prefix=${MINGW_PREFIX}
     fi
@@ -369,7 +369,6 @@ defmodule MultiplayerFabricDeploy.Tasks do
   defp build_platform_script(platform, target, arch \\ "auto", precision \\ "double") do
     """
     set -o xtrace
-    cd ${WORLD_PWD}
 
     if [[ "#{platform}" == "web" && -d "${EMSDK_ROOT}" ]]; then
         source "${EMSDK_ROOT}/emsdk_env.sh"
@@ -383,7 +382,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
         export PATH="${ARM64_ROOT}/bin:${PATH}"
     fi
 
-    cd godot
+    cd ${GODOT_DIR}
 
     #{platform_scons(platform, target, arch, precision)}
 
@@ -478,13 +477,13 @@ defmodule MultiplayerFabricDeploy.Tasks do
         else: ""
 
     copy_post = """
-    rm -rf ${WORLD_PWD}/godot/bin/obj
+    rm -rf ${GODOT_DIR}/bin/obj
     if [[ "#{target}" == "editor" ]]; then
         mkdir -p ${WORLD_PWD}/editors
-        cp -rf ${WORLD_PWD}/godot/bin/* ${WORLD_PWD}/editors
+        cp -rf ${GODOT_DIR}/bin/* ${WORLD_PWD}/editors
     elif [[ "#{target}" =~ template_* ]]; then
         mkdir -p ${WORLD_PWD}/tpz
-        cp -rf ${WORLD_PWD}/godot/bin/* ${WORLD_PWD}/tpz
+        cp -rf ${GODOT_DIR}/bin/* ${WORLD_PWD}/tpz
     fi
     """
 

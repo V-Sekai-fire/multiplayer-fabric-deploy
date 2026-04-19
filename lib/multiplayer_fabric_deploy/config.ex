@@ -25,6 +25,8 @@ defmodule MultiplayerFabricDeploy.Config do
 
   def cmdlinetools, do: "commandlinetools-linux-11076708_latest.zip"
 
+  def godot_dir, do: Path.join(data_dir(), "godot")
+
   def arm64_root, do: Path.join(world_pwd(), "aarch64-godot-linux-gnu_sdk-buildroot")
   def android_sdk_root, do: Path.join(data_dir(), "android_sdk")
   def android_home, do: android_sdk_root()
@@ -43,6 +45,7 @@ defmodule MultiplayerFabricDeploy.Config do
       {"GODOT_BRANCH", godot_branch()},
       {"LABEL_TEMPLATE", label_template()},
       {"WORLD_PWD", world_pwd()},
+      {"GODOT_DIR", godot_dir()},
       {"ANDROID_NDK_VERSION", android_ndk_version()},
       {"ARM64_ROOT", arm64_root()},
       {"ANDROID_SDK_ROOT", android_sdk_root()},

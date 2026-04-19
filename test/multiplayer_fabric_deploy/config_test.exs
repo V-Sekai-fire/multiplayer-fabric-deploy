@@ -39,6 +39,11 @@ defmodule MultiplayerFabricDeploy.ConfigTest do
     assert String.starts_with?(Config.mingw_prefix(), @data_dir)
   end
 
+  test "godot_dir is under data_dir, not cwd" do
+    refute String.starts_with?(Config.godot_dir(), File.cwd!())
+    assert String.starts_with?(Config.godot_dir(), @data_dir)
+  end
+
   test "arm64_root remains under world_pwd (per-project checkout)" do
     assert String.starts_with?(Config.arm64_root(), File.cwd!())
   end
