@@ -12,7 +12,6 @@ defmodule Config do
   end
 
   def rust_log, do: "log"
-  def mvsqlite_data_plane, do: "http://192.168.0.39:7000"
   def build_count, do: "001"
   def docker_gocd_agent_centos_8_groups_git, do: "abcdefgh"
   def godot_groups_editor_pipeline_dependency, do: "dependency_name"
@@ -48,7 +47,6 @@ defmodule Config do
   def env_vars do
     [
       {"RUST_LOG", rust_log()},
-      {"MVSQLITE_DATA_PLANE", mvsqlite_data_plane()},
       {"OPERATING_SYSTEM", operating_system()},
       {"BUILD_COUNT", build_count()},
       {"DOCKER_GOCDA_AGENT_CENTOS_8_GROUPS_GIT", docker_gocd_agent_centos_8_groups_git()},
