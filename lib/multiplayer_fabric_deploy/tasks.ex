@@ -151,24 +151,45 @@ defmodule MultiplayerFabricDeploy.Tasks do
     branch = Config.godot_branch()
     path = Path.join(Config.world_pwd(), "godot")
 
-    if File.dir?(Path.join(path, ".git")) do
-      send(parent, {:output_line, "Opening existing repo at #{path}..."})
-      repo = :git.open(path)
-      send(parent, {:output_line, "Fetching origin..."})
-      :git.fetch(repo)
-      send(parent, {:output_line, "Checking out #{branch}..."})
-      :git.checkout(repo, branch)
-      send(parent, {:output_line, "Pulling..."})
-      :git.pull(repo)
-      send(parent, {:output_line, "Up to date on #{branch}"})
-    else
-      send(parent, {:output_line, "Cloning #{url} @ #{branch} into #{path}..."})
-      repo = :git.clone(url, path)
-      :git.checkout(repo, branch)
-      send(parent, {:output_line, "Clone complete"})
-    end
+    result =
+      if File.dir?(Path.join(path, ".git")) do
+        send(parent, {:output_line, "Opening #{path}..."})
 
-    send(parent, {:task_done, 0})
+        with {:open, repo} when not is_tuple(repo) <- {:open, :git.open(path)},
+             _ = send(parent, {:output_line, "Fetching origin..."}),
+             {:fetch, :ok} <- {:fetch, :git.fetch(repo)},
+             _ = send(parent, {:output_line, "Checking out #{branch}..."}),
+             {:checkout, :ok} <- {:checkout, :git.checkout(repo, branch)},
+             _ = send(parent, {:output_line, "Pulling..."}),
+             {:pull, :ok} <- {:pull, :git.pull(repo)} do
+          send(parent, {:output_line, "Up to date on #{branch}"})
+          :ok
+        else
+          {step, {:error, reason}} -> {:error, "#{step} failed: #{inspect(reason)}"}
+          {step, other} -> {:error, "#{step} unexpected: #{inspect(other)}"}
+        end
+      else
+        send(parent, {:output_line, "Cloning #{url} into #{path}..."})
+
+        with {:clone, repo} when not is_tuple(repo) <- {:clone, :git.clone(url, path)},
+             _ = send(parent, {:output_line, "Checking out #{branch}..."}),
+             {:checkout, :ok} <- {:checkout, :git.checkout(repo, branch)} do
+          send(parent, {:output_line, "Clone complete on #{branch}"})
+          :ok
+        else
+          {step, {:error, reason}} -> {:error, "#{step} failed: #{inspect(reason)}"}
+          {step, other} -> {:error, "#{step} unexpected: #{inspect(other)}"}
+        end
+      end
+
+    case result do
+      :ok ->
+        send(parent, {:task_done, 0})
+
+      {:error, msg} ->
+        send(parent, {:output_line, "Error: #{msg}"})
+        send(parent, {:task_done, 1})
+    end
   end
 
   defp run_all_bash_script do
