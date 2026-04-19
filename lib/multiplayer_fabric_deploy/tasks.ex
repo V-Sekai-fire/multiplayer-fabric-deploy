@@ -399,18 +399,17 @@ defmodule MultiplayerFabricDeploy.Tasks do
         export PATH="${ARM64_ROOT}/bin:${PATH}"
     fi
 
-    SCCACHE_FLAGS=""
-    if which sccache > /dev/null 2>&1; then
-        SCCACHE_FLAGS="c_compiler_launcher=sccache cpp_compiler_launcher=sccache"
-        sccache --start-server 2>/dev/null || true
-        echo "sccache enabled: $(sccache --version)"
-    fi
+    sccache --start-server 2>/dev/null || true
+    echo "sccache $(sccache --version): cache dir $(sccache --show-stats 2>/dev/null | grep 'Cache location' | awk '{print $NF}' || echo unknown)"
+    SCCACHE_FLAGS="c_compiler_launcher=sccache cpp_compiler_launcher=sccache"
 
     cd ${GODOT_DIR}
 
     #{platform_scons(platform, target, arch, precision)}
 
     #{post_build_script(platform, target)}
+
+    sccache --show-stats 2>/dev/null || true
     """
   end
 
