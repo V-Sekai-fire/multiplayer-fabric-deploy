@@ -69,6 +69,12 @@ defmodule MultiplayerFabricDeploy.Tasks do
         run: {:bash, build_osxcross_script()}
       },
       %__MODULE__{
+        id: :setup_sccache,
+        name: "setup-sccache",
+        desc: "Install sccache compiler cache via cargo",
+        run: {:bash, setup_sccache_script()}
+      },
+      %__MODULE__{
         id: :setup_rust,
         name: "setup-rust",
         desc: "Install Rust nightly with all cross-compile targets",
@@ -195,6 +201,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
   defp run_all_bash_script do
     """
     set -e
+    #{setup_sccache_script()}
     #{fetch_openjdk_script()}
     #{setup_android_sdk_script()}
     #{setup_emscripten_script()}
@@ -304,6 +311,16 @@ defmodule MultiplayerFabricDeploy.Tasks do
     """
   end
 
+  defp setup_sccache_script do
+    """
+    if ! which sccache > /dev/null 2>&1; then
+        . "$HOME/.cargo/env" 2>/dev/null || true
+        cargo install sccache --locked
+    fi
+    sccache --version
+    """
+  end
+
   defp setup_rust_script do
     """
     if [ ! -f "$HOME/.cargo/bin/rustup" ]; then
@@ -382,6 +399,13 @@ defmodule MultiplayerFabricDeploy.Tasks do
         export PATH="${ARM64_ROOT}/bin:${PATH}"
     fi
 
+    SCCACHE_FLAGS=""
+    if which sccache > /dev/null 2>&1; then
+        SCCACHE_FLAGS="c_compiler_launcher=sccache cpp_compiler_launcher=sccache"
+        sccache --start-server 2>/dev/null || true
+        echo "sccache enabled: $(sccache --version)"
+    fi
+
     cd ${GODOT_DIR}
 
     #{platform_scons(platform, target, arch, precision)}
@@ -397,7 +421,8 @@ defmodule MultiplayerFabricDeploy.Tasks do
     scons platform=macos arch=#{arch} werror=no compiledb=yes precision=#{precision} \\
         target=#{target} test=yes vulkan=no \\
         vulkan_sdk_path=${VULKAN_SDK_ROOT}/MoltenVK/MoltenVK/static/MoltenVK.xcframework \\
-        osxcross_sdk=darwin24 generate_bundle=yes debug_symbols=yes separate_debug_symbols=yes
+        osxcross_sdk=darwin24 generate_bundle=yes debug_symbols=yes separate_debug_symbols=yes \\
+        $SCCACHE_FLAGS
     """
   end
 
@@ -405,14 +430,16 @@ defmodule MultiplayerFabricDeploy.Tasks do
     """
     scons platform=windows arch=#{arch} werror=no compiledb=yes precision=#{precision} \\
         target=#{target} test=yes use_llvm=yes use_mingw=yes \\
-        debug_symbols=yes separate_debug_symbols=yes
+        debug_symbols=yes separate_debug_symbols=yes \\
+        $SCCACHE_FLAGS
     """
   end
 
   defp platform_scons("android", target, arch, precision) do
     """
     scons platform=android arch=#{arch} werror=no compiledb=yes precision=#{precision} \\
-        target=#{target} test=yes
+        target=#{target} test=yes \\
+        $SCCACHE_FLAGS
     """
   end
 
@@ -424,7 +451,8 @@ defmodule MultiplayerFabricDeploy.Tasks do
 
     """
     scons platform=linuxbsd arch=#{arch} werror=no compiledb=yes precision=#{precision} \\
-        target=#{target} test=yes #{debug}
+        target=#{target} test=yes #{debug} \\
+        $SCCACHE_FLAGS
     """
   end
 
@@ -432,7 +460,8 @@ defmodule MultiplayerFabricDeploy.Tasks do
     """
     scons platform=web arch=#{arch} werror=no optimize=size_extra compiledb=yes \\
         precision=#{precision} target=#{target} test=yes \\
-        dlink_enabled=yes debug_symbols=no disable_exceptions=yes
+        dlink_enabled=yes debug_symbols=no disable_exceptions=yes \\
+        $SCCACHE_FLAGS
     """
   end
 
@@ -443,7 +472,8 @@ defmodule MultiplayerFabricDeploy.Tasks do
     scons platform=ios arch=#{arch} werror=no compiledb=yes precision=#{precision} \\
         target=#{target} test=yes vulkan=no \\
         vulkan_sdk_path=${VULKAN_SDK_ROOT}/MoltenVK/MoltenVK/static/MoltenVK.xcframework \\
-        osxcross_sdk=darwin24 generate_bundle=yes debug_symbols=yes separate_debug_symbols=yes
+        osxcross_sdk=darwin24 generate_bundle=yes debug_symbols=yes separate_debug_symbols=yes \\
+        $SCCACHE_FLAGS
     """
   end
 
