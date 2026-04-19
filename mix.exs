@@ -8,12 +8,17 @@ defmodule MultiplayerFabricDeploy.MixProject do
       elixir: "~> 1.17",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      escript: [main_module: MultiplayerFabricDeploy]
+      aliases: aliases()
     ]
   end
 
   def application do
     [extra_applications: [:logger]]
+  end
+
+  defp aliases do
+    [run: ["run -e \"MultiplayerFabricDeploy.main([])\""]
+    ]
   end
 
   defp deps do
