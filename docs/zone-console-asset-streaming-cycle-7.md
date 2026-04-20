@@ -28,6 +28,10 @@ upload multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn
 instance <returned-id> 0.0 1.0 0.0
 ```
 
+`zone_console` uploads the raw scene and its dependency chunks — no
+pre-processing required.  The zone server's taskweft pipeline handles
+`sha_verify → sandbox_load → structural_verify` at load time.
+
 ## Authority check
 
 The `instance` command sends `CMD_INSTANCE_ASSET` to the zone server.  The
