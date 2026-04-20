@@ -4,30 +4,48 @@ Enable `zone_console` to upload a Godot scene to uro, then trigger the
 running zone process to stream and instance that scene near the current
 player — closing the loop from authoring tool to live world.
 
-## Cycles (Pareto order — highest value/effort ratio first)
+## Cycles (CLI-first order — scaffold drives interface design)
 
 | Cycle | What you get                                                      | Effort | Status |
 | ----- | ----------------------------------------------------------------- | ------ | ------ |
-| 1     | `UroClient.upload_asset/3` — casync chunk → S3 → uro manifest     | Medium | [ ]    |
-| 2     | `upload <path>` command — user can store a scene                  | Low    | [ ]    |
-| 3     | `CMD_INSTANCE_ASSET` wire encoding — protocol ready               | Low    | [ ]    |
-| 4     | `instance <id> <x> <y> <z>` command — user can trigger instancing | Low    | [ ]    |
-| 5     | `UroClient.get_manifest/2` — chunk manifest fetch                 | Low    | [ ]    |
+| 1     | `upload <path>` command — user can store a scene                  | Low    | [x]    |
+| 2     | `UroClient.upload_asset/3` — casync chunk → S3 → uro manifest     | Medium | [x]    |
+| 3     | `CMD_INSTANCE_ASSET` wire encoding — protocol ready               | Low    | [x]    |
+| 4     | `instance <id> <x> <y> <z>` command — user can trigger instancing | Low    | [x]    |
+| 5     | `UroClient.get_manifest/2` — chunk manifest fetch                 | Low    | [x]    |
 | 6     | Godot zone handler — zone actually instances the scene            | High   | [ ]    |
 | 7     | Round-trip integration smoke test                                 | High   | [ ]    |
 
-## Cycle 1 — UroClient.upload_asset/3
+## Cycle 1 — `upload <path>` command
 
-Add `{:aria_storage, github: "V-Sekai-fire/aria-storage"}` to
-`modules/multiplayer_fabric_mmog/tools/zone_console/mix.exs`.
+Implemented in `multiplayer-fabric-zone-console/lib/zone_console/app.ex`:
 
-Implement `UroClient.upload_asset/3`:
+```elixir
+defp run_command(state, "upload " <> path) do
+  path = String.trim(path)
+  name = Path.basename(path)
+
+  case UroClient.upload_asset(state.uro, path, name) do
+    {:ok, id} ->
+      append(state, line(:ok, "Uploaded #{name} as #{id}"))
+
+    {:error, reason} ->
+      append(state, line(:err, "Upload failed: #{reason}"))
+  end
+end
+```
+
+## Cycle 2 — UroClient.upload_asset/3
+
+Implemented in `multiplayer-fabric-zone-console/lib/zone_console/uro_client.ex`.
+Dependency `{:aria_storage, github: "V-Sekai-fire/aria-storage"}` is declared in
+`multiplayer-fabric-zone-console/mix.exs`.
 
 1. `AriaStorage.process_file(path, backend: :s3)` → `{:ok, %{chunks, store_url}}`
 2. POST `/storage` with `{name, chunks, store_url}` + Bearer token
 3. Return `{:ok, id}`
 
-Configure S3 in `config/runtime.exs`:
+S3 configured in `multiplayer-fabric-zone-console/config/runtime.exs`:
 
 ```elixir
 config :aria_storage,
@@ -38,39 +56,48 @@ config :aria_storage,
   aws_secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY")
 ```
 
-## Cycle 2 — `upload <path>` command
-
-Add `"upload"` clause to `handle_line/2` in `app.ex`; call
-`UroClient.upload_asset`, display the returned ID.
-
 ## Cycle 3 — CMD_INSTANCE_ASSET wire protocol
 
-Add to `fabric_mmog_peer.h`:
-
-```cpp
-CMD_INSTANCE_ASSET = 4,
-// payload[1] = shared_file_uuid_hi (u32)
-// payload[2] = shared_file_uuid_lo (u32)
-// payload[3] = pos_x as bit-cast f32 (u32)
-// payload[4] = pos_y as bit-cast f32 (u32)
-// payload[5] = pos_z as bit-cast f32 (u32)
-```
-
-Add `ZoneClient.send_instance/4` — 100-byte packet, 6 payload slots used.
+Implemented in `multiplayer-fabric-zone-console/lib/zone_console/zone_client.ex`.
+`send_instance/5` public API and `handle_cast({:instance, ...})` encode the
+100-byte packet with opcode 4 and split 64-bit asset_id into two u32 payload slots.
 
 ## Cycle 4 — `instance <asset_id> <x> <y> <z>` command
 
-Add `"instance"` clause to `handle_line/2`; parse asset_id and float
-coords; call `ZoneClient.send_instance`.
+Implemented in `multiplayer-fabric-zone-console/lib/zone_console/app.ex`:
+
+```elixir
+defp run_command(state, "instance " <> args) do
+  case String.split(String.trim(args)) do
+    [id_str, x_str, y_str, z_str] ->
+      with {id, ""} <- Integer.parse(id_str),
+           {x, ""} <- Float.parse(x_str),
+           {y, ""} <- Float.parse(y_str),
+           {z, ""} <- Float.parse(z_str) do
+        if state.zone_client do
+          ZoneClient.send_instance(state.zone_client, id, x, y, z)
+          append(state, line(:ok, "Instance request sent for asset #{id} at (#{x}, #{y}, #{z})"))
+        else
+          append(state, line(:warn, "Not joined to a zone. Run 'join' first."))
+        end
+      else
+        _ -> append(state, line(:err, "usage: instance <asset_id> <x> <y> <z>  (int, floats)"))
+      end
+
+    _ ->
+      append(state, line(:err, "usage: instance <asset_id> <x> <y> <z>"))
+  end
+end
+```
 
 ## Cycle 5 — UroClient.get_manifest/2
 
-Add `get_manifest/2` to `UroClient` — POST `/storage/:id/manifest`,
-return `{:ok, %{store_url: _, chunks: [_|_]}}`.
+Implemented in `multiplayer-fabric-zone-console/lib/zone_console/uro_client.ex` —
+POST `/storage/:id/manifest`, return `{:ok, %{store_url: _, chunks: [_|_]}}`.
 
 ## Cycle 6 — Godot zone: handle CMD_INSTANCE_ASSET
 
-In `FabricMMOGPeer::_process_peer_packet`:
+In `multiplayer-fabric-godot` — `FabricMMOGPeer::_process_peer_packet`:
 
 - Add `case CMD_INSTANCE_ASSET:` dispatch
 - Extract `asset_id` (two u32 slots → UUID) and `pos` (three f32 slots)
