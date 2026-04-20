@@ -23,8 +23,8 @@ cd multiplayer-fabric-hosting && docker compose up -d
 From `zone_console` (runs natively on macOS):
 
 ```
-join zone-700a.chibifire.com   # or localhost if DNS not set
-upload path/to/minimal.tscn
+join 0
+upload multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn
 instance <returned-id> 0.0 1.0 0.0
 ```
 

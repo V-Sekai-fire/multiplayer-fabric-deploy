@@ -7,9 +7,10 @@
 
 ## What you get
 
-An automated Playwright test that drives `zone_console` to upload a scene,
-sends `CMD_INSTANCE_ASSET` via WebTransport, and verifies the instanced node
-appears in the browser's AccessKit accessibility tree next to the player.
+An automated Playwright test that connects to `zone_console`'s WebTransport
+console server from the browser, uploads `mire.tscn`, sends
+`CMD_INSTANCE_ASSET`, and verifies the instanced node appears in the browser's
+AccessKit accessibility tree.
 
 ## Preconditions
 
@@ -18,65 +19,131 @@ appears in the browser's AccessKit accessibility tree next to the player.
   ```sh
   npx serve bin/ --listen 8060
   ```
-- `zone_console` running natively on macOS and joined to the zone
+- `zone_console` running (no extra env vars needed):
+  ```sh
+  zone_console
+  ```
+  On first login (or re-login), `zone_console` generates a short-lived
+  self-signed cert at `~/.config/zone_console/console.{crt,key}`, registers
+  the SHA-256 hash with uro (`POST /session/cert`), and starts the console
+  WebTransport server.  Hash validity is tied to the OAuth token TTL.
 
-## Test fixture
+## Console WebTransport server
 
-`tests/fixtures/minimal.tscn` — single `MeshInstance3D` root node named `minimal`,
-no scripts.  The root node name is what AccessKit surfaces as the accessible group name.
+`zone_console` starts a WebTransport server on `CONSOLE_PORT` (default 4433)
+when `CONSOLE_CERTFILE` and `CONSOLE_KEYFILE` are set.  The browser opens one
+persistent bidirectional stream per session; commands are newline-terminated
+strings and responses are newline-terminated `ok: ...` / `error: ...` lines.
+
+The server is implemented in `ZoneConsole.ConsoleConnectionHandler` and
+`ZoneConsole.ConsoleStreamHandler` using the existing `wtransport` dependency —
+no new dependencies.
+
+## Playwright config (`playwright.config.ts`)
+
+```typescript
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+function consoleCertHash(): ArrayBuffer {
+  const pem = readFileSync(join(homedir(), '.config', 'zone_console', 'console.crt'), 'utf8');
+  const b64 = pem.replace(/-----[^-]+-----/g, '').replace(/\s/g, '');
+  const der = Buffer.from(b64, 'base64');
+  return createHash('sha256').update(der).digest().buffer;
+}
+
+export default {
+  use: {
+    // cert hash computed locally from the cert zone_console wrote on login —
+    // no uro query, no credentials in the test
+    webTransportCertHash: consoleCertHash(),
+  },
+};
+```
 
 ## Test script (`tests/e2e/test_asset_streaming.spec.ts`)
 
 ```typescript
 import { test, expect } from '@playwright/test';
-import { execFile } from 'node:child_process';
-import { promisify } from 'node:util';
 
-const exec = promisify(execFile);
-
-async function consoleCmd(cmd: string): Promise<string> {
-  const { stdout } = await exec('zone_console', ['--cmd', cmd]);
-  return stdout;
-}
-
-test('instance scene near player via WebTransport', async ({ page }) => {
+test('instance mire scene near player via WebTransport', async ({ page }) => {
   // 1. Load Godot web client and wait for AccessKit root
   await page.goto('http://localhost:8060');
   await page.getByRole('application', { name: 'Godot Engine' }).waitFor();
 
-  // 2. Join zone
-  await consoleCmd('join zone-700a.chibifire.com');
+  // 2. Connect to zone_console WebTransport console server from the browser.
+  //    Hash comes from playwright.config.ts (read from ~/.config/zone_console/console.crt).
+  //    All commands share one bidi stream so zone_client persists across them.
+  const certHash: ArrayBuffer = (test.info() as any).project.use.webTransportCertHash;
+  const port = parseInt(process.env.CONSOLE_PORT ?? '4433');
 
-  // 3. Upload scene to desync S3 via uro
-  const uploadOut = await consoleCmd('upload tests/fixtures/minimal.tscn');
-  const assetId = uploadOut.match(/as (\d+)/)?.[1];
-  if (!assetId) throw new Error(`Upload failed: ${uploadOut}`);
+  const result = await page.evaluate(
+    async ({ certHash, port }) => {
+    const transport = new WebTransport(`https://localhost:${port}/console`, {
+      serverCertificateHashes: [{ algorithm: 'sha-256', value: certHash }],
+    });
+    await transport.ready;
 
-  // 4. Send CMD_INSTANCE_ASSET via WebTransport
-  await consoleCmd(`instance ${assetId} 0.0 1.0 0.0`);
+    const { readable, writable } = await transport.createBidirectionalStream();
+    const writer = writable.getWriter();
+    const reader = readable.getReader();
+    const enc = (s: string) => new TextEncoder().encode(s);
 
-  // 5. Verify AccessKit tree reflects the instanced node next to player
-  const node = page.getByRole('group', { name: 'minimal' });
+    let buf = '';
+    async function readLine(): Promise<string> {
+      while (!buf.includes('\n')) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += new TextDecoder().decode(value);
+      }
+      const nl = buf.indexOf('\n');
+      const line = buf.slice(0, nl);
+      buf = buf.slice(nl + 1);
+      return line;
+    }
+
+    async function cmd(text: string): Promise<string> {
+      await writer.write(enc(text + '\n'));
+      return readLine();
+    }
+
+    await cmd('join 0');
+    const uploadResp = await cmd(
+      'upload multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn'
+    );
+    const assetId = uploadResp.match(/as (\d+)/)?.[1];
+    if (!assetId) throw new Error('Upload failed: ' + uploadResp);
+
+    await cmd(`instance ${assetId} 0.0 1.0 0.0`);
+    transport.close();
+    return uploadResp;
+  }, { certHash, port });
+
+  // 4. Verify AccessKit tree reflects the instanced mire node
+  const node = page.getByRole('group', { name: 'mire' });
   await expect(node).toBeVisible({ timeout: 15_000 });
 });
 ```
 
 ## Authority note
 
-The web client connects to the zone server via WebTransport.  The zone server
-routes `CMD_INSTANCE_ASSET` to the authority zone for `hilbert3D(0, 1, 0)`.
-The AccessKit tree update originates from the web client receiving the
-CH_INTEREST ghost broadcast from the authority zone — not from a direct
-instance on the client side.
+The browser connects to the zone server via WebTransport (game client).
+The zone server routes `CMD_INSTANCE_ASSET` to the authority zone for
+`hilbert3D(0, 1, 0)`.  The AccessKit tree update originates from the web
+client receiving the CH_INTEREST ghost — not from a direct instance on the
+client side.
 
-## AccessKit note
+## Platform note
 
-`gescons` already passes `accesskit=yes` to SCons.  Use a descriptive root
-node name in production scenes so the accessibility tree remains meaningful.
+`zone_console` runs natively on macOS.  The zone server and uro run in Docker
+(Linux containers).  The console WebTransport server (`localhost:4433`) is
+hosted by `zone_console` itself — no Docker required for that endpoint.
 
 ## Pass condition
 
-`getByRole('group', { name: 'minimal' })` becomes visible within 15 s of the
+`getByRole('group', { name: 'mire' })` becomes visible within 15 s of the
 `instance` command.  This confirms the full pipeline:
 
 ```
