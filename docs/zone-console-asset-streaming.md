@@ -1,12 +1,13 @@
 # Zone console asset streaming
 
-Upload a Godot scene to uro from `zone_console`, then instance it in the live world via `CMD_INSTANCE_ASSET`.
+Upload a raw asset (GLB) or pre-baked scene to uro from `zone_console`, trigger the [ephemeral bake](ephemeral-asset-bake-microservice.md) if necessary, then instance it in the live world via `CMD_INSTANCE_ASSET`.
 
 ## Authoritative design
 
 1. **Authority** — the zone whose Hilbert range contains `hilbert3D(pos)` receives and executes `CMD_INSTANCE_ASSET`. No other zone instances the scene.
 2. **Interest** — neighbouring zones within `AOI_CELLS` receive a CH_INTEREST ghost of the new node. They do not re-fetch or re-instance.
 3. **ReBAC** — the authority zone evaluates `rebacCheck` before instancing. `observe` is public; `modify` requires `owner`.
+4. **Headless Baking** — production zone servers do not contain editor code. All `.tscn` / `.godot/imported` generation occurs in the [ephemeral-asset-bake-microservice](ephemeral-asset-bake-microservice.md).
 
 ## Platform support
 
@@ -50,6 +51,8 @@ The zone-server container listens on UDP 443 and is reachable at `localhost` or
 | 3     | `CMD_INSTANCE_ASSET` wire encoding — protocol ready               | Low    | [x]    | [cycle-3](zone-console-asset-streaming-cycle-3.md) |
 | 4     | `instance <id> <x> <y> <z>` command — user can trigger instancing | Low    | [x]    | [cycle-4](zone-console-asset-streaming-cycle-4.md) |
 | 5     | `UroClient.get_manifest/2` — chunk manifest fetch                 | Low    | [x]    | [cycle-5](zone-console-asset-streaming-cycle-5.md) |
-| 6     | Godot zone handler — authority zone instances the scene           | High   | [ ]    | [cycle-6](zone-console-asset-streaming-cycle-6.md) |
-| 7     | Round-trip integration smoke test                                 | High   | [ ]    | [cycle-7](zone-console-asset-streaming-cycle-7.md) |
-| 8     | Playwright + AccessKit browser smoke test                         | High   | [ ]    | [cycle-8](zone-console-asset-streaming-cycle-8.md) |
+| 6     | FLAME Asset Baker — Ephemeral SCons `editor=yes` import pipeline  | Medium | [/]    | [flame-bake](ephemeral-asset-bake-microservice.md) |
+| 7     | FLAME Zone Orchestrator — Elastic `editor=no` server placement    | High   | [ ]    | [control-plane](zone-console-operational-control-plane.md) |
+| 8     | Godot zone handler — authority zone instances the baked scene     | High   | [ ]    | [cycle-6](zone-console-asset-streaming-cycle-6.md) |
+| 9     | Round-trip integration smoke test                                 | High   | [ ]    | [cycle-7](zone-console-asset-streaming-cycle-7.md) |
+| 10    | Playwright + AccessKit browser smoke test                         | High   | [ ]    | [cycle-8](zone-console-asset-streaming-cycle-8.md) |
