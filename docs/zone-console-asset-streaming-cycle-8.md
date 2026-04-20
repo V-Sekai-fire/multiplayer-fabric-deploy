@@ -7,16 +7,23 @@
 
 ## What you get
 
-An automated Playwright test that connects to the Web-based Zone Console, uploads `mire.tscn`, sends `CMD_INSTANCE_ASSET`, and verifies the instanced node appears in the browser's AccessKit accessibility tree.
+An automated Playwright test that connects to `zone_console`'s WebTransport
+console server from the browser, uploads `mire.tscn`, sends
+`CMD_INSTANCE_ASSET`, and verifies the instanced node appears in the browser's
+AccessKit accessibility tree.
 
 ## Preconditions
 
 - Full Fly.io/FLAME stack running (or local Docker equivalent).
-- Godot web export built with `gescons` (`accesskit=yes` already set).
+- Godot web export built with `gescons` (`accesskit=yes` already set) and served.
+- `zone_console` running natively on macOS.
 
-## Note on client
+## Console WebTransport server
 
-The primary operational interface is the **Web Client**. Testing is done via Playwright to ensure browser compatibility with the WebTransport console protocol.
+`zone_console` starts a WebTransport server on `CONSOLE_PORT` (default 4433).
+The browser opens one persistent bidirectional stream per session; commands are 
+newline-terminated strings and responses are newline-terminated `ok: ...` / 
+`error: ...` lines.
 
 ## Console WebTransport server
 

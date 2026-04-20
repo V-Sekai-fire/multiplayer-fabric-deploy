@@ -1,6 +1,6 @@
 # Zone console asset streaming
 
-Upload a raw asset (GLB) or pre-baked scene to uro from the `web client`, trigger the [ephemeral bake](ephemeral-asset-bake-microservice.md) if necessary, then instance it in the live world via `CMD_INSTANCE_ASSET`.
+Upload a raw asset (GLB) or pre-baked scene to uro from `zone_console`, trigger the [ephemeral bake](ephemeral-asset-bake-microservice.md) if necessary, then instance it in the live world via `CMD_INSTANCE_ASSET`.
 
 ## Authoritative design
 
@@ -12,15 +12,23 @@ Upload a raw asset (GLB) or pre-baked scene to uro from the `web client`, trigge
 
 ## Platform support
 
-The WebTransport stack targets `linux` and `web` (browser). There is no native macOS client.
+The WebTransport stack targets `linux` and `linux-pcvr`. **macOS has no native zone-server backend.**
 
 | Component                       | Hosting / Platform                                                           |
 | ------------------------------- | ---------------------------------------------------------------------------- |
-| `web client`                    | ✅ runs in Browser (Playwright tested)                                       |
-| `uro` + CockroachDB + VersityGW | ✅ Fly.io / Docker (Linux)                                                   |
+| `zone_console`                  | ✅ runs natively (Elixir)                                                    |
+| `uro` + CockroachDB + VersityGW | ⚠️ Docker only (Linux) — no native macOS build                               |
 | Godot zone server               | ✅ Fly.io FLAME (headless Linux)                                             |
-| WebTransport client             | ✅ `web` (browser), `linux`                                                  |
+| WebTransport client             | ✅ `linux`, `linux-pcvr` — no macOS native                                   |
 | Godot `template_debug/release`  | ⚠️ Linux only — produced in CI and consumed by FLAME                         |
+
+Local template builds use `gtscons` / `gtrscons` which wrap Docker:
+
+```sh
+# run from multiplayer-fabric-godot root
+gtscons   # target=template_debug  via Linux container
+gtrscons  # target=template_release via Linux container
+```
 
 `target=template_debug` and `target=template_release` for `linuxbsd` are built
 in CI (`linux_builds.yml`) and consumed by the zone-fabric Docker container.
