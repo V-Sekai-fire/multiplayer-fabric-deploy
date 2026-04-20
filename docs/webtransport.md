@@ -1,9 +1,8 @@
 # WebTransport platform support (modules/http3)
 
-Three backends — `web` uses the browser JS API; `linux` uses picoquic + picotls + mbedtls; `linux-pcvr` uses the same picoquic stack as a native client on Steam Frame and Linux distros.
+Two native backends — `linux` and `linux-pcvr` use picoquic + picotls + mbedtls. **Web support is explicitly excluded** in favor of native picoquic performance and tighter certificate pinning across all platforms.
 
 | Platform     | Backend                 | Role                             |
 | ------------ | ----------------------- | -------------------------------- |
-| `web`        | JS (`quic_web_glue.js`) | Primary — browser client + WebXR |
 | `linux`      | picoquic native         | Server                           |
 | `linux-pcvr` | picoquic native         | Client — PCVR on Steam Frame and Linux distros |

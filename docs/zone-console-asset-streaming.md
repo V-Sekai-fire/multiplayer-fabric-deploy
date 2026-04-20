@@ -12,14 +12,14 @@ Upload a raw asset (GLB) or pre-baked scene to uro from `zone_console`, trigger 
 
 ## Platform support
 
-The WebTransport stack targets `linux` and `linux-pcvr`. **macOS has no native zone-server backend.**
+The WebTransport stack targets `linux` and `linux-pcvr`. **Web/Browser support is not supported.**
 
 | Component                       | Hosting / Platform                                                           |
 | ------------------------------- | ---------------------------------------------------------------------------- |
 | `zone_console`                  | ✅ runs natively (Elixir)                                                    |
 | `uro` + CockroachDB + VersityGW | ⚠️ Docker only (Linux) — no native macOS build                               |
 | Godot zone server               | ✅ Fly.io FLAME (headless Linux)                                             |
-| WebTransport client             | ✅ `linux`, `linux-pcvr` — no macOS native                                   |
+| WebTransport client             | ✅ `linux`, `linux-pcvr`                                                     |
 | Godot `template_debug/release`  | ⚠️ Linux only — produced in CI and consumed by FLAME                         |
 
 Local template builds use `gtscons` / `gtrscons` which wrap Docker:

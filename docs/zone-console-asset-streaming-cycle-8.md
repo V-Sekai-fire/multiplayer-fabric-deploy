@@ -1,4 +1,4 @@
-# Cycle 8 — Playwright + AccessKit browser smoke test
+# Cycle 8 — Native PCVR smoke test
 
 **Status:** [ ] not started  
 **Effort:** High  
@@ -7,23 +7,19 @@
 
 ## What you get
 
-An automated Playwright test that connects to `zone_console`'s WebTransport
-console server from the browser, uploads `mire.tscn`, sends
-`CMD_INSTANCE_ASSET`, and verifies the instanced node appears in the browser's
-AccessKit accessibility tree.
+A manual integration test using the `linux-pcvr` native backend (picoquic). This verifies that the native high-performance stack correctly handles the Full Asset Ingestion pipeline.
 
 ## Preconditions
 
 - Full Fly.io/FLAME stack running (or local Docker equivalent).
-- Godot web export built with `gescons` (`accesskit=yes` already set) and served.
+- Native Linux/PCVR build of the Godot client.
 - `zone_console` running natively on macOS.
 
-## Console WebTransport server
+## Native WebTransport client
 
-`zone_console` starts a WebTransport server on `CONSOLE_PORT` (default 4433).
-The browser opens one persistent bidirectional stream per session; commands are 
-newline-terminated strings and responses are newline-terminated `ok: ...` / 
-`error: ...` lines.
+The client connects to the zone server via native WebTransport (picoquic).
+This bypasses all browser limitations and ensures bit-for-bit parity with
+the server's internal protocol.
 
 ## Console WebTransport server
 
