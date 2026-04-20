@@ -1,6 +1,6 @@
 # Zone console asset streaming
 
-Upload a raw asset (GLB) or pre-baked scene to uro from `zone_console`, trigger the [ephemeral bake](ephemeral-asset-bake-microservice.md) if necessary, then instance it in the live world via `CMD_INSTANCE_ASSET`.
+Upload a raw asset (GLB) or pre-baked scene to uro from the `web client`, trigger the [ephemeral bake](ephemeral-asset-bake-microservice.md) if necessary, then instance it in the live world via `CMD_INSTANCE_ASSET`.
 
 ## Authoritative design
 
@@ -8,19 +8,19 @@ Upload a raw asset (GLB) or pre-baked scene to uro from `zone_console`, trigger 
 2. **Interest** — neighbouring zones within `AOI_CELLS` receive a CH_INTEREST ghost of the new node. They do not re-fetch or re-instance.
 3. **ReBAC** — the authority zone evaluates `rebacCheck` before instancing. `observe` is public; `modify` requires `owner`.
 4. **Headless Baking** — production zone servers do not contain editor code. All `.tscn` / `.godot/imported` generation occurs in the [ephemeral-asset-bake-microservice](ephemeral-asset-bake-microservice.md).
+5. **Infrastructure** — All operational components (Bakers and Zone Servers) run on **Fly.io** using Elixir FLAME for elastic orchestration.
 
 ## Platform support
 
-The WebTransport stack (picoquic native) only targets `linux` and `linux-pcvr`
-(see `docs/webtransport.md`). **macOS has no native zone-server backend.**
+The WebTransport stack targets `linux` and `web` (browser). There is no native macOS client.
 
-| Component                       | macOS                                                                        |
+| Component                       | Hosting / Platform                                                           |
 | ------------------------------- | ---------------------------------------------------------------------------- |
-| `zone_console`                  | ✅ runs natively (Elixir)                                                    |
-| `uro` + CockroachDB + VersityGW | ⚠️ Docker only (Linux container) — no native macOS build                     |
-| Godot zone server               | ⚠️ Docker only (`linux` container) — no native macOS build                   |
-| WebTransport client             | ✅ `web` (browser), `linux`, `linux-pcvr` — no macOS native                  |
-| Godot `template_debug/release`  | ⚠️ Linux only — `linuxbsd` platform not available on macOS SCons; use Docker |
+| `web client`                    | ✅ runs in Browser (Playwright tested)                                       |
+| `uro` + CockroachDB + VersityGW | ✅ Fly.io / Docker (Linux)                                                   |
+| Godot zone server               | ✅ Fly.io FLAME (headless Linux)                                             |
+| WebTransport client             | ✅ `web` (browser), `linux`                                                  |
+| Godot `template_debug/release`  | ⚠️ Linux only — produced in CI and consumed by FLAME                         |
 
 `target=template_debug` and `target=template_release` for `linuxbsd` are built
 in CI (`linux_builds.yml`) and consumed by the zone-fabric Docker container.
