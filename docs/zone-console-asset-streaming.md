@@ -37,6 +37,7 @@ The zone-server container listens on UDP 443 and is reachable at `localhost` or
 | 5     | `UroClient.get_manifest/2` — chunk manifest fetch                 | Low    | [x]    |
 | 6     | Godot zone handler — zone actually instances the scene            | High   | [ ]    |
 | 7     | Round-trip integration smoke test                                 | High   | [ ]    |
+| 8     | Playwright + AccessKit browser smoke test — upload scene to desync S3, send `CMD_INSTANCE_ASSET` via WebTransport, verify instanced node appears in AccessKit tree next to player | High   | [ ]    |
 
 ## Cycle 1 — `upload <path>` command
 
@@ -151,3 +152,71 @@ instance <returned-id> 0.0 1.0 0.0
 ```
 
 Assert the zone entity list shows a new entry near `pos`.
+
+## Cycle 8 — Playwright + AccessKit browser smoke test
+
+> **Depends on:** Cycles 6 and 7 complete.
+
+### Preconditions
+
+- Full Docker stack running: `cd multiplayer-fabric-hosting && docker compose up -d`
+- Godot web export built with `gescons` (`accesskit=yes` already set) and served:
+  ```sh
+  npx serve bin/ --listen 8060
+  ```
+- `zone_console` running natively on macOS and joined to the zone
+
+### Test fixture
+
+`tests/fixtures/minimal.tscn` — single `MeshInstance3D` root node, no scripts.
+The root node name (`minimal`) is what AccessKit surfaces in the accessibility tree.
+
+### Test script (`tests/e2e/test_asset_streaming.spec.ts`)
+
+```typescript
+import { test, expect } from '@playwright/test';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const exec = promisify(execFile);
+
+async function consoleCmd(cmd: string): Promise<string> {
+  const { stdout } = await exec('zone_console', ['--cmd', cmd]);
+  return stdout;
+}
+
+test('instance scene near player via WebTransport', async ({ page }) => {
+  // 1. Load Godot web client and wait for AccessKit root
+  await page.goto('http://localhost:8060');
+  await page.getByRole('application', { name: 'Godot Engine' }).waitFor();
+
+  // 2. Join zone
+  await consoleCmd('join zone-700a.chibifire.com');
+
+  // 3. Upload scene to desync S3 via uro
+  const uploadOut = await consoleCmd('upload tests/fixtures/minimal.tscn');
+  const assetId = uploadOut.match(/as (\d+)/)?.[1];
+  if (!assetId) throw new Error(`Upload failed: ${uploadOut}`);
+
+  // 4. Send CMD_INSTANCE_ASSET via WebTransport
+  await consoleCmd(`instance ${assetId} 0.0 1.0 0.0`);
+
+  // 5. Verify AccessKit tree reflects the instanced node next to player
+  //    The instanced scene root is exposed as a named group by AccessKit.
+  const node = page.getByRole('group', { name: 'minimal' });
+  await expect(node).toBeVisible({ timeout: 15_000 });
+});
+```
+
+### AccessKit note
+
+`gescons` already passes `accesskit=yes` to SCons. The instanced scene's root
+node name is used as the accessible name — use a descriptive root node name in
+production scenes so the accessibility tree remains meaningful.
+
+### Pass condition
+
+`getByRole('group', { name: 'minimal' })` becomes visible within 15 s of the
+`instance` command. This confirms the full pipeline: S3 upload → uro manifest →
+`CMD_INSTANCE_ASSET` wire packet → zone handler → WebTransport push → web client
+scene instantiation → AccessKit tree update.
