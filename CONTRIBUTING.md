@@ -24,7 +24,9 @@ still green.
 - **Dry-run by default.** Every destructive action (upload, tag push,
   remote exec) must support a `--dry-run` flag that prints what would
   happen without doing it.
-- **Commit every green.** One commit per feature cycle.
+- **Commit every green.** One commit per feature cycle.  Messages use
+  sentence case; do not use Conventional Commits prefixes (`feat:`,
+  `fix:`, `chore:`, etc.).
 
 ## Workflow
 
