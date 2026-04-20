@@ -1,4 +1,4 @@
-# Cycle 8 — Native PCVR smoke test
+# Cycle 8 — Native Multi-Platform smoke test
 
 **Status:** [ ] not started  
 **Effort:** High  
@@ -7,19 +7,19 @@
 
 ## What you get
 
-A manual integration test using the `linux-pcvr` native backend (picoquic). This verifies that the native high-performance stack correctly handles the Full Asset Ingestion pipeline.
+A manual integration test using native clients across Linux, macOS, and Windows. This verifies that the picoquic backend correctly handles the Full Asset Ingestion pipeline with shared certificate pinning logic across all OS variants.
 
 ## Preconditions
 
 - Full Fly.io/FLAME stack running (or local Docker equivalent).
-- Native Linux/PCVR build of the Godot client.
+- Native builds for target platforms (Linux ARM/x86, macOS ARM/x86, Windows x64).
 - `zone_console` running natively on macOS.
 
 ## Native WebTransport client
 
 The client connects to the zone server via native WebTransport (picoquic).
 This bypasses all browser limitations and ensures bit-for-bit parity with
-the server's internal protocol.
+the server's internal protocol across macOS, Windows, and Linux.
 
 ## Console WebTransport server
 

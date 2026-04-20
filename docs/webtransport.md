@@ -1,8 +1,10 @@
 # WebTransport platform support (modules/http3)
 
-Two native backends — `linux` and `linux-pcvr` use picoquic + picotls + mbedtls. **Web support is explicitly excluded** in favor of native picoquic performance and tighter certificate pinning across all platforms.
+Native backends leveraging picoquic + picotls + mbedtls across all major desktop platforms. **Web support is explicitly excluded** in favor of native performance and strict certificate pinning.
 
-| Platform     | Backend                 | Role                             |
-| ------------ | ----------------------- | -------------------------------- |
-| `linux`      | picoquic native         | Server                           |
-| `linux-pcvr` | picoquic native         | Client — PCVR on Steam Frame and Linux distros |
+| Platform       | Backend         | Role                                  |
+| -------------- | --------------- | ------------------------------------- |
+| `linux`        | picoquic native | Server / Client                       |
+| `linux-pcvr`   | picoquic native | Client — PCVR on Steam Frame          |
+| `macos`        | picoquic native | Client — Native ARM64/x86_64          |
+| `windows-pcvr` | picoquic native | Client — Native x86_64 / Windows-PCVR |
