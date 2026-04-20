@@ -28,6 +28,69 @@ still green.
   sentence case; do not use Conventional Commits prefixes (`feat:`,
   `fix:`, `chore:`, etc.).
 
+## Deploy to production (Fly.io)
+
+All configs live in `multiplayer-fabric-fly/`. Images are built externally and pushed to GHCR before deploying.
+
+### Cycles (dependency order)
+
+| Cycle | What you get | Effort | Status |
+| ----- | ------------ | ------ | ------ |
+| 1 | Build + push `multiplayer-fabric-zone-backend` Docker image via `multiplayer-fabric-zone-backend` CI | Medium | [ ] |
+| 2 | Build + push `multiplayer-fabric-godot-server` Docker image via `multiplayer-fabric-deploy` CI | High | [ ] |
+| 3 | Build + push `ghcr.io/v-sekai/cockroach` Docker image via `v-sekai/cockroach` CI | Medium | [ ] |
+| 4 | Create Fly apps and provision Tigris bucket | Low | [ ] |
+| 5 | Deploy CockroachDB (`multiplayer-fabric-crdb`) with persistent volume | Low | [ ] |
+| 6 | Deploy zone-backend (`multiplayer-fabric-uro`) and wire secrets | Low | [ ] |
+| 7 | Deploy zone servers (`multiplayer-fabric-zones`) and smoke test | Low | [ ] |
+
+### Cycle 1 — zone-backend Docker image
+
+Add a `Dockerfile` to `multiplayer-fabric-zone-backend` and a GitHub Actions workflow that builds and pushes `ghcr.io/v-sekai-fire/multiplayer-fabric-zone-backend:latest` on every push to `main`.
+
+### Cycle 2 — Godot server Docker image
+
+Add a `Dockerfile` to `multiplayer-fabric-deploy` that cross-compiles the headless Godot server binary (aarch64) and packages it. Push `ghcr.io/v-sekai-fire/multiplayer-fabric-godot-server:latest` on every release tag.
+
+### Cycle 3 — CockroachDB fork image
+
+Add a GitHub Actions workflow to `v-sekai/cockroach` that builds from the `release-22.1-oxide` branch and pushes `ghcr.io/v-sekai/cockroach:latest`.
+
+### Cycle 4 — Fly app provisioning
+
+```bash
+fly apps create multiplayer-fabric-uro
+fly apps create multiplayer-fabric-zones
+fly apps create multiplayer-fabric-crdb
+fly storage create                          # creates Tigris bucket, outputs credentials
+```
+
+### Cycle 5 — CockroachDB
+
+```bash
+fly volumes create crdb_data --app multiplayer-fabric-crdb --region yyz --size 80
+fly deploy --config multiplayer-fabric-fly/crdb/fly.toml
+```
+
+### Cycle 6 — Zone backend
+
+```bash
+fly secrets set --app multiplayer-fabric-uro \
+  DATABASE_URL="postgresql://root@<crdb-private-host>:26257/production" \
+  AWS_S3_BUCKET="<tigris-bucket>" \
+  AWS_S3_ENDPOINT="https://fly.storage.tigris.dev" \
+  AWS_ACCESS_KEY_ID="<key>" \
+  AWS_SECRET_ACCESS_KEY="<secret>"
+fly deploy --config multiplayer-fabric-fly/uro/fly.toml
+```
+
+### Cycle 7 — Zone servers
+
+```bash
+fly deploy --config multiplayer-fabric-fly/zones/fly.toml
+# Smoke test: join a zone from the console, upload a minimal scene, instance it
+```
+
 ## Workflow
 
 ```
