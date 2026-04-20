@@ -4,6 +4,28 @@ Enable `zone_console` to upload a Godot scene to uro, then trigger the
 running zone process to stream and instance that scene near the current
 player — closing the loop from authoring tool to live world.
 
+## Platform support
+
+The WebTransport stack (picoquic native) only targets `linux` and `linux-pcvr`
+(see `docs/webtransport.md`). **macOS has no native zone-server backend.**
+
+| Component                       | macOS                                                       |
+| ------------------------------- | ----------------------------------------------------------- |
+| `zone_console`                  | ✅ runs natively (Elixir)                                   |
+| `uro` + CockroachDB + VersityGW | ⚠️ Docker only (Linux container) — no native macOS build    |
+| Godot zone server               | ⚠️ Docker only (`linux` container) — no native macOS build  |
+| WebTransport client             | ✅ `web` (browser), `linux`, `linux-pcvr` — no macOS native |
+
+Run the full stack on macOS with:
+
+```sh
+cd multiplayer-fabric-hosting
+docker compose up -d   # starts crdb, versitygw, uro, zone-server (Linux container)
+```
+
+The zone-server container listens on UDP 443 and is reachable at `localhost` or
+`zone-700a.chibifire.com` depending on your `.env`.
+
 ## Cycles (CLI-first order — scaffold drives interface design)
 
 | Cycle | What you get                                                      | Effort | Status |
@@ -97,6 +119,10 @@ POST `/storage/:id/manifest`, return `{:ok, %{store_url: _, chunks: [_|_]}}`.
 
 ## Cycle 6 — Godot zone: handle CMD_INSTANCE_ASSET
 
+> **macOS note:** the Godot zone process runs inside the `zone-server` Docker
+> container (Linux). Build and test changes via `docker compose build zone-server
+&& docker compose up -d zone-server`. There is no native macOS zone-server binary.
+
 In `multiplayer-fabric-godot` — `FabricMMOGPeer::_process_peer_packet`:
 
 - Add `case CMD_INSTANCE_ASSET:` dispatch
@@ -110,5 +136,18 @@ download + SHA-512/256 verification pipeline.
 ## Cycle 7 — Round-trip integration smoke test
 
 Requires CockroachDB + VersityGW + uro + zone all running locally.
-Upload a minimal `.tscn`, `instance` it, assert the zone entity list
-shows a new entry near `pos`.
+On macOS, "locally" means via Docker — start the stack first:
+
+```sh
+cd multiplayer-fabric-hosting && docker compose up -d
+```
+
+Then from `zone_console` (runs natively on macOS):
+
+```
+join zone-700a.chibifire.com   # or localhost if DNS not set
+upload path/to/minimal.tscn
+instance <returned-id> 0.0 1.0 0.0
+```
+
+Assert the zone entity list shows a new entry near `pos`.
