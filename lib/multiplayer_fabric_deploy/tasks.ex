@@ -411,7 +411,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
 
     sccache --start-server 2>/dev/null || true
     echo "sccache $(sccache --version): cache dir $(sccache --show-stats 2>/dev/null | grep 'Cache location' | awk '{print $NF}' || echo unknown)"
-    SCCACHE_FLAGS="c_compiler_launcher=sccache cpp_compiler_launcher=sccache"
+    SCCACHE_FLAGS="ccache=sccache cache_path=$HOME/.cache/scons-godot"
 
     cd ${GODOT_DIR}
 
@@ -428,7 +428,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
     if [ "$(uname)" = "Darwin" ]; then unset OSXCROSS_ROOT
     else export PATH=${OSXCROSS_ROOT}/target/bin/:$PATH; fi
     scons platform=macos arch=#{arch} werror=no compiledb=yes precision=#{precision} \\
-        target=#{target} test=yes vulkan=no \\
+        target=#{target} test=yes vulkan=no accesskit=no \\
         vulkan_sdk_path=${VULKAN_SDK_ROOT}/MoltenVK/MoltenVK/static/MoltenVK.xcframework \\
         osxcross_sdk=darwin24 generate_bundle=yes debug_symbols=yes separate_debug_symbols=yes \\
         $SCCACHE_FLAGS
