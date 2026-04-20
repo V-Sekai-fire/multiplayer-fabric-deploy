@@ -1,28 +1,12 @@
 # Zone console asset streaming
 
-Enable `zone_console` to upload a Godot scene to uro, then trigger the
-running zone process to stream and instance that scene near the current
-player — closing the loop from authoring tool to live world.
+Upload a Godot scene to uro from `zone_console`, then instance it in the live world via `CMD_INSTANCE_ASSET`.
 
 ## Authoritative design
 
-Asset instancing follows the same authority/interest rules as entity updates:
-
-- **Authority zone** — the zone whose Hilbert range contains
-  `hilbert3D(pos)` receives `CMD_INSTANCE_ASSET` and performs the
-  actual `ResourceLoader::load()` + `Node::instantiate()`.  No other
-  zone may instance the scene at that position.
-- **Interest zones** — neighbouring zones within `AOI_CELLS` of the
-  authority zone's Hilbert code receive ghost updates of the new node
-  via the normal CH_INTEREST broadcast.  They do not re-instance.
-- **ReBAC gate** — the authority zone evaluates `rebacCheck` before
-  instancing.  `observe` is public (any interest zone may serve the
-  node to nearby clients); `modify` requires `owner` relation.
-
-This means `CMD_INSTANCE_ASSET` is routed geometrically, not by a
-coordinator.  The console command targets the authority zone for the
-given `(x, y, z)` position; that zone fetches the manifest, verifies
-chunk hashes, and owns the resulting scene node.
+1. **Authority** — the zone whose Hilbert range contains `hilbert3D(pos)` receives and executes `CMD_INSTANCE_ASSET`. No other zone instances the scene.
+2. **Interest** — neighbouring zones within `AOI_CELLS` receive a CH_INTEREST ghost of the new node. They do not re-fetch or re-instance.
+3. **ReBAC** — the authority zone evaluates `rebacCheck` before instancing. `observe` is public; `modify` requires `owner`.
 
 ## Platform support
 
