@@ -13,12 +13,23 @@ Upload a Godot scene to uro from `zone_console`, then instance it in the live wo
 The WebTransport stack (picoquic native) only targets `linux` and `linux-pcvr`
 (see `docs/webtransport.md`). **macOS has no native zone-server backend.**
 
-| Component                       | macOS                                                       |
-| ------------------------------- | ----------------------------------------------------------- |
-| `zone_console`                  | ✅ runs natively (Elixir)                                   |
-| `uro` + CockroachDB + VersityGW | ⚠️ Docker only (Linux container) — no native macOS build    |
-| Godot zone server               | ⚠️ Docker only (`linux` container) — no native macOS build  |
-| WebTransport client             | ✅ `web` (browser), `linux`, `linux-pcvr` — no macOS native |
+| Component                       | macOS                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------- |
+| `zone_console`                  | ✅ runs natively (Elixir)                                                    |
+| `uro` + CockroachDB + VersityGW | ⚠️ Docker only (Linux container) — no native macOS build                     |
+| Godot zone server               | ⚠️ Docker only (`linux` container) — no native macOS build                   |
+| WebTransport client             | ✅ `web` (browser), `linux`, `linux-pcvr` — no macOS native                  |
+| Godot `template_debug/release`  | ⚠️ Linux only — `linuxbsd` platform not available on macOS SCons; use Docker |
+
+`target=template_debug` and `target=template_release` for `linuxbsd` are built
+in CI (`linux_builds.yml`) and consumed by the zone-fabric Docker container.
+Local template builds use `gtscons` / `gtrscons` which wrap Docker:
+
+```sh
+# run from multiplayer-fabric-godot root
+gtscons   # target=template_debug  via Linux container
+gtrscons  # target=template_release via Linux container
+```
 
 Run the full stack on macOS with:
 
