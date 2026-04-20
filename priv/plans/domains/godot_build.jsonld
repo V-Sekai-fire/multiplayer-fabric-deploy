@@ -1,0 +1,100 @@
+{
+  "@context": {
+    "khr": "https://registry.khronos.org/glTF/extensions/2.0/KHR_interactivity/",
+    "domain": "khr:planning/domain/"
+  },
+  "@type": "domain:Definition",
+  "name": "godot_build",
+  "variables": [
+    {"name": "setup", "init": {
+      "godot_fetched":    false,
+      "sccache_ready":    false,
+      "vulkan_sdk_ready": false,
+      "emscripten_ready": false
+    }},
+    {"name": "built", "init": {
+      "macos_template":  false,
+      "linux_editor":    false,
+      "web_template":    false
+    }}
+  ],
+  "actions": {
+    "a_fetch_godot": {
+      "params": [],
+      "body": [
+        {"check": "/setup/godot_fetched", "eq": false},
+        {"set":   "/setup/godot_fetched", "value": true}
+      ]
+    },
+    "a_setup_sccache": {
+      "params": [],
+      "body": [
+        {"check": "/setup/sccache_ready", "eq": false},
+        {"set":   "/setup/sccache_ready", "value": true}
+      ]
+    },
+    "a_fetch_vulkan_sdk": {
+      "params": [],
+      "body": [
+        {"check": "/setup/vulkan_sdk_ready", "eq": false},
+        {"set":   "/setup/vulkan_sdk_ready", "value": true}
+      ]
+    },
+    "a_setup_emscripten": {
+      "params": [],
+      "body": [
+        {"check": "/setup/emscripten_ready", "eq": false},
+        {"set":   "/setup/emscripten_ready", "value": true}
+      ]
+    },
+    "a_build_macos_template": {
+      "params": [],
+      "body": [
+        {"check": "/setup/godot_fetched",    "eq": true},
+        {"check": "/setup/sccache_ready",    "eq": true},
+        {"check": "/setup/vulkan_sdk_ready", "eq": true},
+        {"check": "/built/macos_template",   "eq": false},
+        {"set":   "/built/macos_template",   "value": true}
+      ]
+    },
+    "a_build_linux_editor": {
+      "params": [],
+      "body": [
+        {"check": "/setup/godot_fetched",  "eq": true},
+        {"check": "/setup/sccache_ready",  "eq": true},
+        {"check": "/built/linux_editor",   "eq": false},
+        {"set":   "/built/linux_editor",   "value": true}
+      ]
+    },
+    "a_build_web_template": {
+      "params": [],
+      "body": [
+        {"check": "/setup/godot_fetched",    "eq": true},
+        {"check": "/setup/sccache_ready",    "eq": true},
+        {"check": "/setup/emscripten_ready", "eq": true},
+        {"check": "/built/web_template",     "eq": false},
+        {"set":   "/built/web_template",     "value": true}
+      ]
+    }
+  },
+  "methods": {
+    "deploy_all": {
+      "params": [],
+      "alternatives": [
+        {
+          "name": "full_pipeline",
+          "subtasks": [
+            ["a_fetch_godot"],
+            ["a_setup_sccache"],
+            ["a_fetch_vulkan_sdk"],
+            ["a_setup_emscripten"],
+            ["a_build_macos_template"],
+            ["a_build_linux_editor"],
+            ["a_build_web_template"]
+          ]
+        }
+      ]
+    }
+  },
+  "tasks": [["deploy_all"]]
+}

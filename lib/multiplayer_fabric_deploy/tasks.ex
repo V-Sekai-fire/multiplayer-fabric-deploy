@@ -8,10 +8,34 @@ defmodule MultiplayerFabricDeploy.Tasks do
       %__MODULE__{
         id: :run_all,
         name: "run-all",
-        desc: "Run all setup steps and build macOS template_release",
+        desc: "Plan and run full pipeline (web + linux + macos) via RECTGTN planner",
         run: {:elixir, fn parent ->
-          fetch_godot(parent)
-          MultiplayerFabricDeploy.Runner.run_bash_sync(run_all_bash_script(), parent)
+          case MultiplayerFabricDeploy.Planner.planned_tasks() do
+            {:error, reason} ->
+              send(parent, {:output_line, "Planner error: #{reason}"})
+              send(parent, {:task_done, 1})
+
+            {:ok, tasks} ->
+              send(parent, {:output_line, "Plan: #{Enum.map_join(tasks, " → ", & &1.name)}"})
+              outer = self()
+              exit_code =
+                Enum.reduce_while(tasks, 0, fn task, _ ->
+                  send(parent, {:output_line, "▶ #{task.name}"})
+                  # Proxy: forward all messages to real parent, capture exit_status
+                  proxy = spawn(fn -> proxy_loop(parent, outer) end)
+                  case task.run do
+                    {:elixir, f} -> f.(proxy)
+                    {:bash, script} -> MultiplayerFabricDeploy.Runner.run_bash_sync(script, proxy)
+                  end
+                  receive do
+                    {:step_done, code} ->
+                      if code == 0, do: {:cont, 0}, else: {:halt, code}
+                  after
+                    600_000 -> {:halt, 1}
+                  end
+                end)
+              send(parent, {:task_done, exit_code})
+          end
         end}
       },
       %__MODULE__{
@@ -198,19 +222,14 @@ defmodule MultiplayerFabricDeploy.Tasks do
     end
   end
 
-  defp run_all_bash_script do
-    """
-    set -e
-    #{setup_sccache_script()}
-    #{fetch_openjdk_script()}
-    #{setup_android_sdk_script()}
-    #{setup_emscripten_script()}
-    #{fetch_llvm_mingw_script()}
-    #{build_osxcross_script()}
-    #{fetch_vulkan_sdk_script()}
-    #{build_platform_script("macos", "template_release")}
-    echo "run-all: Success!"
-    """
+  defp proxy_loop(real_parent, step_owner) do
+    receive do
+      {:task_done, code} ->
+        send(step_owner, {:step_done, code})
+      msg ->
+        send(real_parent, msg)
+        proxy_loop(real_parent, step_owner)
+    end
   end
 
   defp fetch_openjdk_script do
