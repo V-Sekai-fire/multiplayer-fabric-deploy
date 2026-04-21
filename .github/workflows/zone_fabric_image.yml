@@ -25,6 +25,7 @@ jobs:
         with:
           repository: V-Sekai-fire/multiplayer-fabric-godot
           ref: main
+          token: ${{ secrets.GODOT_CI_TOKEN }}
           sparse-checkout: |
             .github/docker/Dockerfile.zone-fabric
             modules/multiplayer_fabric_mmog/tools/zone_console
