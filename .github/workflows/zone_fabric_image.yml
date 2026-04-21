@@ -20,11 +20,8 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Fetch Dockerfile.zone-fabric
-        run: |
-          curl -fsSL \
-            https://raw.githubusercontent.com/V-Sekai-fire/multiplayer-fabric-godot/main/.github/docker/Dockerfile.zone-fabric \
-            -o Dockerfile.zone-fabric
+      - name: Checkout this repo (for Dockerfile)
+        uses: actions/checkout@v4
 
       - name: Clone multiplayer-fabric-zone-console
         run: |
@@ -65,7 +62,7 @@ jobs:
           mkdir -p docker-ctx-zone
           cp -r godot-bin docker-ctx-zone/godot-bin
           cp -r zone-console-src docker-ctx-zone/zone_console
-          cp Dockerfile.zone-fabric docker-ctx-zone/Dockerfile
+          cp .github/docker/Dockerfile.zone-fabric docker-ctx-zone/Dockerfile
 
       - name: Docker metadata
         id: meta
