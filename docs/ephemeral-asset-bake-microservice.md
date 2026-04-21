@@ -1,79 +1,71 @@
-# Ephemeral Asset Baking (FLAME)
+# Ephemeral asset baking (Docker one-shot)
 
-This document describes the **FLAME-driven** (Fleeting Lambda Application for Modular Execution) asset pipeline. By integrating Elixir FLAME directly into the `uro` backend, we can execute heavy Godot import operations on ephemeral Fly.io nodes.
+When a raw asset is uploaded to uro, a one-shot Docker container running the
+Godot editor binary (`editor=yes` build) performs the headless import and
+returns the baked artefact. Zone servers carry no editor code.
 
-## Overview
-The baking process is managed as an elastic part of the `uro` application. When a raw asset needs processing, `uro` spawns a temporary Fly.io machine (a "Runner") using the **SCons `editor=yes` build**. This runner executes the Godot headless import and returns the results to the parent node.
-
-## Architecture
-
-```mermaid
-graph TD
-    A[Uro Parent Node] -->|FLAME.call| B(FLAME Runner Node: editor=yes)
-    B -->|Godot --headless --import| B
-    B -->|Return tarball| A
-    A -->|Store Baked Asset| C[(DigitalOcean Spaces)]
-    D[Zone Server: editor=no] -->|Fetch Baked Asset| A
-```
-
-## Implementation
-
-### 1. FLAME Pool Configuration (Dedicated Editor Node)
-In `uro/application.ex`, we define a dedicated pool for asset processing. This pool uses a specialized container image containing the editor-enabled binary:
-```elixir
-{FLAME.Pool,
- name: Uro.AssetBaker,
- backend: {FLAME.FlyBackend, 
-   image: "registry.fly.io/multiplayer-fabric-uro:editor-latest", # SCons editor=yes build
-   env: %{"GODOT_MODE" => "baker"}
- },
- min: 0,
- max: 10,
- cpu_kind: "performance-2x",
- memory_mb: 4096,
- idle_shutdown_after: 30_000}
-```
-
-### 2. The Baking Logic (`Uro.Baker`)
-The logic executes the `editor` binary in headless mode to perform the bake. These nodes are **disconnected from the Hilbert grid**:
-```elixir
-defmodule Uro.Baker do
-  def bake_asset(raw_data) do
-    FLAME.call(Uro.AssetBaker, fn ->
-      # Executed on an ephemeral Fly Machine with SCons editor=yes
-      # 1. godot --headless --path . --import
-      # 2. Return the tarballed .godot/imported folder
-    end)
-  end
-end
-```
+## Flow
 
 ```
+POST /storage (raw asset uploaded by zone_console)
+  ↓
+zone-backend spawns baker container (one-shot, exits when done):
+  docker run --rm \
+    --network multiplayer-fabric-hosting_default \
+    -v /tmp/scene-<id>:/scene \
+    -e ASSET_ID=<id> \
+    -e URO_URL=http://zone-backend:4000 \
+    -e VERSITYGW_URL=http://versitygw:7070 \
+    multiplayer-fabric-godot-baker:latest
+  ↓
+baker container:
+  godot --headless --path /scene --import
+  tar .godot/imported → /out/baked.tar.gz
+  PUT /out/baked.tar.gz → versitygw:7070/uro-uploads/<id>.tar.gz
+  POST http://zone-backend:4000/storage/<id>/bake {baked_url: "http://versitygw:7070/..."}
+  exit 0
+  ↓
+zone-backend writes baked_url to CockroachDB shared_files record
+```
 
-### 3. Benefits of the FLAME Pattern
-- **Zero-Boilerplate Scaling:** No separate Dockerfiles or Fly configurations for the baker. It uses the exact same deployment image as the `uro` backend.
-- **Integrated Auth:** Since the runner is part of the `uro` cluster, authentication is handled via internal BEAM distribution and certificates.
-- **State Management:** The parent node receives the baked binary directly, allowing for immediate database updates and cleanup.
+## Baker image
 
-## Advantages for Bloom Power
-- **Efficiency:** Machines are spawned in ~2-3 seconds and destroyed immediately after the `FLAME.call` returns.
-- **Resource Isolation:** Physics-heavy baking is offloaded from the `uro` API nodes, preventing request latency spikes.
-- **Simplified Deployment:** Your CI/CD only needs to manage one application (`uro`) while gaining horizontal scaling for background tasks.
+Built from `multiplayer-fabric-godot/Dockerfile.baker`, target `baker`.
+SCons flags: `editor=yes scons_cache_limit=4096 linuxbsd headless`.
 
-## Security Model
+```sh
+cd multiplayer-fabric-godot
+docker build --target baker \
+  -t multiplayer-fabric-godot-baker:latest \
+  -f Dockerfile.baker .
+```
 
-## Security Model
+## Security model
 
-- **Auth:** The microservice utilizes standard mTLS authentication. It presents its machine-specific operational certificate to the `Uro` backend for all storage operations.
-- **Pinned Verification:** `Uro` verifies the machine's certificate against the internal Operator CA before accepting asset shipments.
-- **Isolation:** The Fly Machine operates in a sandbox with no direct network access to active `predictive_bvh` physics zones.
+The baker container connects only to the Docker-internal network
+(`multiplayer-fabric-hosting_default`). It cannot reach the public internet.
+It authenticates to zone-backend using an internal service token passed via
+environment variable, not a user OAuth token.
 
-## Advantages for Bloom Power
+## Operational monitoring
 
-- **No Editor Drift:** Prevents manual GUI-based asset changes.
-- **Minimal Shard Image:** Zone servers do not need the Editor code, reducing resident memory per zone by ~150MB.
-- **Reproducible Simulation:** Ensures that every zone in the Hilbert-coded grid uses the exact same baked BVH structure, preventing desyncs caused by varying import parameters.
+Baker container logs are readable via:
 
-## Operational Monitoring
+```sh
+docker ps -a --filter ancestor=multiplayer-fabric-godot-baker:latest
+docker logs <baker-container-id>
+```
 
-Bake status and logs are streamed directly to the `zone_console`, providing operators with real-time feedback on the asset pipeline without requiring a Godot Editor instance.
+Zone-backend logs show bake trigger and result:
+
+```sh
+docker logs multiplayer-fabric-hosting-zone-backend-1 2>&1 | grep "bake"
+```
+
+## Benefits
+
+- Zone server Docker image is smaller by ~150 MB (no editor code).
+- Every zone uses the same baked BVH structure — no import parameter drift.
+- Baking is isolated: a crash in the baker does not affect zone servers.
+- No cloud provider required — runs on the same host machine as the rest of
+  the stack.

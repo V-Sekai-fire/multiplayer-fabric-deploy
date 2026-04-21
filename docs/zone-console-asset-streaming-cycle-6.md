@@ -1,4 +1,4 @@
-# Cycle 6 — FLAME asset baker
+# Cycle 6 — Asset baker (Docker `editor=yes`)
 
 **Status:** [ ] RED  
 **Effort:** Medium  
@@ -7,26 +7,27 @@
 
 ## What you get
 
-When a raw GLB or .tscn is uploaded, uro spawns an ephemeral Fly.io machine
-(`editor=yes` build) that runs `godot --headless --import`, tarballs
-`.godot/imported`, uploads the result to Tigris, and updates the manifest.
-Zone servers only fetch the pre-baked artefact — they carry no editor code.
+When a raw GLB or .tscn is uploaded, uro triggers a Docker container running
+the Godot editor binary in headless mode (`editor=yes` build). The baker runs
+`godot --headless --import`, tarballs `.godot/imported`, uploads the result to
+VersityGW, and updates the manifest with a `baked_url` field. Zone servers
+only fetch the pre-baked artefact — they carry no editor code.
 
-## Architecture
+## Infrastructure
 
 ```
-UroClient.upload_asset/3
-  → POST /storage (raw chunks in Tigris)
-  → uro backend triggers FLAME.call(Uro.AssetBaker, fn -> ...)
-      → ephemeral Fly machine image: registry.fly.io/multiplayer-fabric-uro:editor-latest
-      → godot --headless --path . --import
-      → tar .godot/imported → upload baked tarball to Tigris
-      → return %{baked_url: ..., chunks: [...]}
-  → uro updates manifest: adds baked_url field
+zone-backend (Docker)
+  → spawn baker container (one-shot, editor=yes image)
+  → baker: godot --headless --path /scene --import
+  → baker: tar .godot/imported → upload to versitygw:7070/uro-uploads/
+  → baker: POST /storage/:id/bake {baked_url}
+  → zone-backend: update manifest record in CockroachDB
+  → baker container exits
 ```
 
-Zone servers query `GET /storage/:id/manifest` and receive both raw chunks and
-the `baked_url`. They use the baked version for `sandbox_load`.
+The baker is a separate Docker image built from the same Godot source with
+`editor=yes` SCons flag. It runs as a one-shot container on the host, not a
+long-lived service.
 
 ## RED — failing test
 
@@ -36,19 +37,21 @@ File: `test/zone_console/uro_client_bake_test.exs`
 defmodule ZoneConsole.UroClientBakeTest do
   use ExUnit.Case, async: false
 
+  defp authed_client do
+    ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
+    |> then(fn c ->
+      {:ok, a} = ZoneConsole.UroClient.login(c,
+        System.fetch_env!("URO_EMAIL"),
+        System.fetch_env!("URO_PASSWORD"))
+      a
+    end)
+  end
+
   @tag :prod
   test "uploaded asset manifest includes baked_url after baker completes" do
-    client =
-      ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
-      |> then(fn c ->
-        {:ok, authed} = ZoneConsole.UroClient.login(c,
-          System.fetch_env!("URO_EMAIL"),
-          System.fetch_env!("URO_PASSWORD"))
-        authed
-      end)
-
+    client     = authed_client()
     scene_path = System.fetch_env!("TEST_SCENE_PATH")
-    {:ok, id} = ZoneConsole.UroClient.upload_asset(client, scene_path,
+    {:ok, id}  = ZoneConsole.UroClient.upload_asset(client, scene_path,
       Path.basename(scene_path))
 
     # Baker is async — poll up to 30 s for baked_url to appear
@@ -60,85 +63,73 @@ defmodule ZoneConsole.UroClientBakeTest do
       end)
 
     assert is_binary(baked_url), "manifest must have baked_url within 30 s"
-    assert String.starts_with?(baked_url, "https://")
+    assert String.contains?(baked_url, "versitygw") or
+           String.contains?(baked_url, "localhost") or
+           String.contains?(baked_url, "7070"),
+           "baked_url must point to local VersityGW store"
   end
 end
 ```
 
-Run with:
-
-```sh
-cd multiplayer-fabric-zone-console
-URO_BASE_URL=https://uro.chibifire.com \
-URO_EMAIL=... URO_PASSWORD=... \
-TEST_SCENE_PATH=../multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn \
-AWS_S3_BUCKET=uro-uploads AWS_S3_ENDPOINT=https://fly.storage.tigris.dev \
-AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-mix test --only prod test/zone_console/uro_client_bake_test.exs
-```
+Run with the same env vars as Cycle 2.
 
 ## GREEN — pass condition
 
-The test passes within 30 s. The manifest `baked_url` points to a Tigris object.
-Confirm the ephemeral baker machine appeared and was destroyed:
+Test passes within 30 s. The `baked_url` points to an object in the
+`uro-uploads` bucket on VersityGW. Confirm:
 
 ```sh
-fly machines list --app multiplayer-fabric-uro | grep baker
+# Baker container was created and exited cleanly
+docker ps -a --filter ancestor=multiplayer-fabric-godot-baker:latest | head -5
+
+# Baked tarball exists in VersityGW
+AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+  aws --endpoint-url http://localhost:7070 \
+  s3 ls s3://uro-uploads/ | grep ".tar.gz"
+
+# Manifest now has baked_url
+curl -s -X POST https://hub-700a.chibifire.com/storage/<id>/manifest \
+  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool | grep baked_url
 ```
 
-## REFACTOR
+## Implementation steps
 
-Extract the poll-until helper into `ZoneConsole.TestHelpers.poll_until/3` for
-reuse in Cycle 9's round-trip test.
-
-## Fly.io deployment steps
-
-### 1. Build the editor image
+### 1. Build the baker image
 
 ```sh
 cd multiplayer-fabric-godot
-# SCons editor=yes linuxbsd headless build
-docker build --target editor-latest \
-  -t registry.fly.io/multiplayer-fabric-uro:editor-latest \
+docker build --target baker \
+  -t multiplayer-fabric-godot-baker:latest \
   -f Dockerfile.baker .
-fly auth docker
-docker push registry.fly.io/multiplayer-fabric-uro:editor-latest
 ```
 
-### 2. Add the FLAME pool to uro's application.ex
+The `baker` target compiles Godot with `editor=yes scons_cache_limit=4096`.
+
+### 2. Add baker trigger to zone-backend
+
+In `multiplayer-fabric-zone-backend/lib/uro/shared_content.ex`, after
+`create_shared_file/1` succeeds, spawn a Task:
 
 ```elixir
-# lib/uro/application.ex — add to children list:
-{FLAME.Pool,
-  name: Uro.AssetBaker,
-  backend: {FLAME.FlyBackend,
-    image: "registry.fly.io/multiplayer-fabric-uro:editor-latest",
-    env: %{"GODOT_MODE" => "baker"}
-  },
-  min: 0, max: 10,
-  cpu_kind: "performance-2x", memory_mb: 4096,
-  idle_shutdown_after: 30_000}
+Task.start(fn ->
+  System.cmd("docker", [
+    "run", "--rm",
+    "--network", "multiplayer-fabric-hosting_default",
+    "-v", "#{tmp_dir}:/scene",
+    "-e", "ASSET_ID=#{id}",
+    "-e", "URO_URL=http://zone-backend:4000",
+    "-e", "VERSITYGW_URL=http://versitygw:7070",
+    "multiplayer-fabric-godot-baker:latest"
+  ])
+end)
 ```
 
-### 3. Deploy uro
+### 3. Add bake endpoint
 
-```sh
-fly deploy --app multiplayer-fabric-uro
-```
+`POST /storage/:id/bake` accepts `{baked_url: ...}` and sets
+`baked_url` on the `shared_files` record. Add the column via migration.
 
-### 4. Add baked_url to manifest endpoint
+## REFACTOR
 
-In `multiplayer-fabric-zone-backend`, update `POST /storage/:id/manifest` to
-include `baked_url` once the baker has finished. Store bake status in a
-CockroachDB column `baked_at` on the `shared_files` table.
-
-## Cloudflare check
-
-The manifest endpoint `POST /storage/:id/manifest` must not be cached.
-Confirm:
-
-```sh
-curl -sI -X POST https://uro.chibifire.com/storage/<id>/manifest \
-  -H "Authorization: Bearer $TOKEN" | grep cf-cache-status
-# expect DYNAMIC or MISS
-```
+Once green, move the `Task.start` into a supervised `Uro.Baker` GenServer
+so crashes are observable and restarts are bounded.

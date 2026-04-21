@@ -7,9 +7,21 @@
 
 ## What you get
 
-A single CLI session exercises the full pipeline end-to-end on production
-infrastructure: log in, upload, wait for bake, instance, confirm entity list,
-confirm neighbour ghost. No mocks. No stubs.
+A single test session exercises the full pipeline end-to-end on the live
+stack: login → upload → wait for bake → instance → entity list confirmed.
+No mocks. No stubs. Every hop verifiable in Docker logs.
+
+## Infrastructure path (full round-trip)
+
+```
+zone_console
+  1. login        → HTTPS → Cloudflare Tunnel → zone-backend:4000
+  2. upload_asset → AriaStorage → versitygw:7070 (direct)
+                  → HTTPS → Cloudflare Tunnel → zone-backend:4000 (manifest)
+  3. baker        → Docker one-shot → versitygw:7070 → baked_url in DB
+  4. send_instance → WebTransport UDP 443 → zone-server (direct, no CF)
+  5. entity_list  ← WebTransport entity snapshot from zone-server
+```
 
 ## Manual smoke test sequence
 
@@ -25,11 +37,11 @@ Logged in as <user>
 Uploaded mire.tscn as 550e8400-...
 
 > bake-status 550e8400-...
-Baking... (poll every 2 s)
-Baked. baked_url = https://fly.storage.tigris.dev/uro-uploads/550e8400-....tar.gz
+Baking... (polling every 2 s)
+Baked. baked_url = http://localhost:7070/uro-uploads/550e8400-....tar.gz
 
 > join 0
-Joined zone 0 (zone-700a.chibifire.com:7777)
+Joined zone 0 at zone-700a.chibifire.com:443
 
 > instance 550e8400-... 0.0 1.0 0.0
 Instance request sent for asset 550e8400-... at (0.0, 1.0, 0.0)
@@ -46,111 +58,89 @@ File: `test/zone_console/round_trip_test.exs`
 defmodule ZoneConsole.RoundTripTest do
   use ExUnit.Case, async: false
 
+  defp authed_client do
+    ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
+    |> then(fn c ->
+      {:ok, a} = ZoneConsole.UroClient.login(c,
+        System.fetch_env!("URO_EMAIL"), System.fetch_env!("URO_PASSWORD"))
+      a
+    end)
+  end
+
   @tag :prod
   test "full pipeline: login → upload → bake → instance → entity list" do
-    base = System.fetch_env!("URO_BASE_URL")
-    client =
-      ZoneConsole.UroClient.new(base)
-      |> then(fn c ->
-        {:ok, a} = ZoneConsole.UroClient.login(c,
-          System.fetch_env!("URO_EMAIL"), System.fetch_env!("URO_PASSWORD"))
-        a
-      end)
-
-    # Upload
+    client     = authed_client()
     scene_path = System.fetch_env!("TEST_SCENE_PATH")
-    {:ok, asset_id} = ZoneConsole.UroClient.upload_asset(client, scene_path,
+    {:ok, id}  = ZoneConsole.UroClient.upload_asset(client, scene_path,
       Path.basename(scene_path))
 
-    # Wait for bake (max 30 s)
-    baked_url = poll_for_baked_url(client, asset_id, 30)
-    assert is_binary(baked_url)
-
-    # Instance
-    url  = System.fetch_env!("ZONE_SERVER_URL")
-    pin  = System.fetch_env!("ZONE_CERT_PIN")
-    pid  = self()
-    {:ok, zc} = ZoneConsole.ZoneClient.start_link(url, pin, 1, pid)
-    ZoneConsole.ZoneClient.send_instance(zc, String.to_integer(asset_id),
-      0.0, 1.0, 0.0)
-
-    # Entity appears in zone entity list within 2 s
-    assert_receive {:zone_entities, entities}, 2_000
-    found = Enum.any?(Map.values(entities), fn e ->
-      abs(e.cy - 1.0) < 0.5
-    end)
-    assert found, "entity near y=1.0 must appear"
-    ZoneConsole.ZoneClient.stop(zc)
-  end
-
-  @tag :prod
-  test "CH_INTEREST ghost reaches neighbour zone within one RTT" do
-    # This test requires at least 2 running zone machines.
-    # Skip if only one zone is up.
-    client =
-      ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
-      |> then(fn c ->
-        {:ok, a} = ZoneConsole.UroClient.login(c,
-          System.fetch_env!("URO_EMAIL"), System.fetch_env!("URO_PASSWORD"))
-        a
+    # Poll for bake (max 30 s)
+    baked_url =
+      Enum.find_value(1..30, fn _ ->
+        {:ok, m} = ZoneConsole.UroClient.get_manifest(client, id)
+        url = m["baked_url"] || m[:baked_url]
+        if url, do: url, else: (Process.sleep(1_000); nil)
       end)
 
-    {:ok, zones} = ZoneConsole.UroClient.list_zones(client)
-    if length(zones) < 2, do: flunk("need at least 2 zones for ghost test")
+    assert is_binary(baked_url), "baked_url must appear within 30 s"
 
-    [auth_zone | [neighbour | _]] = zones
-    auth_url  = "https://#{auth_zone["address"]}:#{auth_zone["port"]}"
-    nbr_url   = "https://#{neighbour["address"]}:#{neighbour["port"]}"
-    auth_pin  = auth_zone["cert_hash"]
-    nbr_pin   = neighbour["cert_hash"]
+    url = System.fetch_env!("ZONE_SERVER_URL")
+    pin = System.fetch_env!("ZONE_CERT_PIN")
+    {:ok, zc} = ZoneConsole.ZoneClient.start_link(url, pin, 1, self())
 
-    # Connect to both zones
-    {:ok, ac} = ZoneConsole.ZoneClient.start_link(auth_url, auth_pin, 1, self())
-    {:ok, nc} = ZoneConsole.ZoneClient.start_link(nbr_url,  nbr_pin,  2, self())
+    ZoneConsole.ZoneClient.send_instance(zc, String.to_integer(id), 0.0, 1.0, 0.0)
 
-    # Instance via authority zone
-    asset_id  = String.to_integer(System.fetch_env!("TEST_ASSET_ID"))
-    ZoneConsole.ZoneClient.send_instance(ac, asset_id, 0.0, 1.0, 0.0)
+    assert_receive {:zone_entities, entities}, 2_000
 
-    # Neighbour receives CH_INTEREST ghost
-    assert_receive {:zone_entities, _}, 1_000
+    found = Enum.any?(Map.values(entities), fn e -> abs(e.cy - 1.0) < 0.5 end)
+    assert found, "entity near y=1.0 must appear in zone entity list"
 
-    ZoneConsole.ZoneClient.stop(ac)
-    ZoneConsole.ZoneClient.stop(nc)
-  end
-
-  defp poll_for_baked_url(client, id, secs) do
-    Enum.find_value(1..secs, fn _ ->
-      {:ok, m} = ZoneConsole.UroClient.get_manifest(client, id)
-      url = m["baked_url"] || m[:baked_url]
-      if url, do: url, else: (Process.sleep(1_000); nil)
-    end)
+    ZoneConsole.ZoneClient.stop(zc)
   end
 end
 ```
 
+Run:
+
+```sh
+cd multiplayer-fabric-zone-console
+URO_BASE_URL=https://hub-700a.chibifire.com \
+ZONE_SERVER_URL=https://zone-700a.chibifire.com \
+ZONE_CERT_PIN=<fingerprint> \
+URO_EMAIL=... URO_PASSWORD=... \
+TEST_SCENE_PATH=../multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn \
+AWS_S3_BUCKET=uro-uploads AWS_S3_ENDPOINT=http://localhost:7070 \
+AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+mix test --only prod test/zone_console/round_trip_test.exs
+```
+
 ## GREEN — pass condition
 
-Both tests pass on prod. The smoke test takes under 35 s end to end. Zone
-server logs confirm authority routing and interest broadcast.
+Test passes end-to-end. Under 35 s total.
+
+Full stack verification:
 
 ```sh
-fly logs --app multiplayer-fabric-zones | grep -E "authority|CH_INTEREST|instantiate"
+# 1. Cloudflare Tunnel healthy (4 edge connections)
+docker logs multiplayer-fabric-hosting-cloudflared-1 2>&1 | \
+  grep "Registered tunnel" | wc -l
+
+# 2. CockroachDB has the asset record with baked_url set
+docker exec multiplayer-fabric-hosting-crdb-1 \
+  /cockroach/cockroach sql --insecure \
+  -e "SELECT id, name, baked_url IS NOT NULL FROM vsekai.shared_files \
+      ORDER BY inserted_at DESC LIMIT 3;"
+
+# 3. VersityGW has both raw chunks and baked tarball
+AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+  aws --endpoint-url http://localhost:7070 s3 ls s3://uro-uploads/ --recursive
+
+# 4. Zone server entity list
+docker logs multiplayer-fabric-hosting-zone-server-1 2>&1 | \
+  grep -E "instantiate|CH_INTEREST"
 ```
 
-## Fly.io + Cloudflare health checks
+## REFACTOR
 
-```sh
-# Uro health
-curl -s https://uro.chibifire.com/healthz
-
-# Cloudflare edge latency
-curl -sw "\n%{time_total}s\n" -o /dev/null https://uro.chibifire.com/healthz
-
-# Zone machine count
-fly machines list --app multiplayer-fabric-zones | grep started | wc -l
-
-# CRDB connectivity (from uro machine)
-fly ssh console --app multiplayer-fabric-uro -C \
-  "psql $DATABASE_URL -c 'SELECT 1'"
-```
+Extract the poll-for-baked-url logic into `ZoneConsole.TestHelpers.poll/3`
+and reuse it in Cycle 10.

@@ -7,18 +7,30 @@
 
 ## What you get
 
-The full pipeline verified natively on macOS (ARM and x86), Linux (ARM and
-x86), and Windows (x64). Certificate pinning, picoquic transport, and the
-AccessKit UI tree are confirmed independently on each platform.
+The full pipeline verified natively on macOS (ARM), Linux (x86), and
+Windows (x64). Certificate pinning and picoquic transport confirmed on each
+platform. AccessKit UI tree verified where a screen reader is active.
+
+## Infrastructure — unchanged from Cycle 9
+
+```
+All platforms connect to the same stack:
+  hub-700a.chibifire.com  → Cloudflare Tunnel → zone-backend:4000 (Docker, host)
+  zone-700a.chibifire.com → DNS A record → host IP → UDP 443 → zone-server (Docker)
+  versitygw               → localhost:7070 (S3, Docker)
+```
+
+The host machine exposes:
+- TCP 443 — Cloudflare Tunnel origin (handled by cloudflared container)
+- UDP 443 — zone server WebTransport (router NAT → Docker port 443)
 
 ## Platform matrix
 
-| Platform         | zone_console build | Zone transport | AccessKit backend |
-| ---------------- | ------------------ | -------------- | ----------------- |
-| macOS ARM        | `mix escript.build` | picoquic/QUIC  | NSAccessibility   |
-| macOS x86        | `mix escript.build` | picoquic/QUIC  | NSAccessibility   |
-| Linux x86 (Fly)  | `mix escript.build` | picoquic/QUIC  | AT-SPI2           |
-| Windows x64      | `mix escript.build` | picoquic/QUIC  | UI Automation     |
+| Platform        | zone_console build      | HTTP path                 | UDP path           | AccessKit        |
+| --------------- | ----------------------- | ------------------------- | ------------------ | ---------------- |
+| macOS ARM       | `mix escript.build`     | Cloudflare Tunnel / HTTPS | direct UDP 443     | NSAccessibility  |
+| Linux x86       | `mix escript.build`     | Cloudflare Tunnel / HTTPS | direct UDP 443     | AT-SPI2          |
+| Windows x64     | `mix escript.build`     | Cloudflare Tunnel / HTTPS | direct UDP 443     | UI Automation    |
 
 ## RED — failing tests
 
@@ -28,7 +40,6 @@ File: `test/zone_console/multi_platform_test.exs`
 defmodule ZoneConsole.MultiPlatformTest do
   use ExUnit.Case, async: false
 
-  # Detect current platform
   @platform case :os.type() do
     {:unix, :darwin}  -> :macos
     {:unix, :linux}   -> :linux
@@ -37,12 +48,11 @@ defmodule ZoneConsole.MultiPlatformTest do
 
   @tag :prod
   test "zone_console connects and instances on #{@platform}" do
-    url = System.fetch_env!("ZONE_SERVER_URL")
-    pin = System.fetch_env!("ZONE_CERT_PIN")
+    url      = System.fetch_env!("ZONE_SERVER_URL")
+    pin      = System.fetch_env!("ZONE_CERT_PIN")
+    asset_id = String.to_integer(System.fetch_env!("TEST_ASSET_ID"))
 
     {:ok, zc} = ZoneConsole.ZoneClient.start_link(url, pin, 1, self())
-
-    asset_id = String.to_integer(System.fetch_env!("TEST_ASSET_ID"))
     ZoneConsole.ZoneClient.send_instance(zc, asset_id, 0.0, 1.0, 0.0)
 
     assert_receive {:zone_entities, entities}, 2_000
@@ -55,81 +65,72 @@ defmodule ZoneConsole.MultiPlatformTest do
   @tag :prod
   @tag :accesskit
   test "AccessKit tree shows instanced node on #{@platform}" do
-    # Run AFTER the instance command above so the entity is already in the world.
     asset_id = System.fetch_env!("TEST_ASSET_ID")
 
     {:ok, ax_tree} = ZoneConsole.AccessKit.get_tree(@platform)
-    node = find_node_by_label(ax_tree, asset_id)
-    assert node != nil, "#{@platform}: AccessKit tree must contain instanced node"
-    assert node[:accessible] == true
-  end
-
-  defp find_node_by_label(tree, label) do
-    nodes = tree[:nodes] || tree["nodes"] || []
-    Enum.find(nodes, fn n -> n[:label] == label or n["label"] == label end)
+    node = Enum.find(ax_tree[:nodes] || [], fn n ->
+      n[:label] == asset_id or n["label"] == asset_id
+    end)
+    assert node != nil, "#{@platform}: instanced node must appear in AccessKit tree"
+    assert node[:accessible] == true or node["accessible"] == true
   end
 end
 ```
 
-Run on each target platform:
+Run on each platform (same env vars as Cycle 9, plus `TEST_ASSET_ID`):
 
 ```sh
-cd multiplayer-fabric-zone-console
-ZONE_SERVER_URL=https://zone-700a.chibifire.com \
-ZONE_CERT_PIN=... TEST_ASSET_ID=<id> \
+# Transport test (all platforms)
 mix test --only prod test/zone_console/multi_platform_test.exs
-```
 
-Run the AccessKit subset separately (requires screen reader active):
-
-```sh
+# AccessKit test (requires active screen reader)
 mix test --only accesskit test/zone_console/multi_platform_test.exs
 ```
 
 ## GREEN — pass condition
 
-The transport test passes on all four platform/arch combinations. The
-AccessKit test passes on macOS (VoiceOver on), Linux (Orca + AT-SPI2), and
-Windows (Narrator on).
+Transport test passes on macOS ARM, Linux x86, and Windows x64.
+AccessKit test passes with VoiceOver (macOS), Orca (Linux), Narrator (Windows).
+
+## Verify Cloudflare Tunnel handles all three
+
+```sh
+# From each platform, confirm Cloudflare edge responds
+curl -sI https://hub-700a.chibifire.com/health | grep -E "cf-ray|HTTP"
+
+# Confirm latency from Cloudflare edge (target < 100 ms)
+curl -sw "\nTotal: %{time_total}s\n" -o /dev/null \
+  https://hub-700a.chibifire.com/health
+```
+
+## Verify UDP 443 reachable from each platform
+
+```sh
+# macOS / Linux
+nc -u -w2 zone-700a.chibifire.com 443 && echo "UDP open"
+
+# Windows (PowerShell)
+$udp = New-Object System.Net.Sockets.UdpClient
+$udp.Connect("zone-700a.chibifire.com", 443)
+Write-Host "UDP OK"
+```
 
 ## REFACTOR
 
-If `ZoneConsole.AccessKit.get_tree/1` requires platform-specific native code,
-wrap it behind a behaviour with three implementations
-(`AccessKit.MacOS`, `AccessKit.Linux`, `AccessKit.Windows`) dispatched via
-compile-time `@platform` or runtime `:os.type/0`.
+If `ZoneConsole.AccessKit.get_tree/1` requires platform-specific native calls,
+implement it as a behaviour with three modules dispatched at runtime:
 
-## Fly.io build matrix
-
-```sh
-# Build zone_console escript for Linux inside a Fly ephemeral machine
-fly machine run --app multiplayer-fabric-uro \
-  --image hexpm/elixir:1.17.3-erlang-27.0.1-debian-bookworm-20240904-slim \
-  --command "cd /app && mix escript.build" \
-  --volume zone_console_src:/app
+```elixir
+defmodule ZoneConsole.AccessKit do
+  def get_tree(platform) do
+    case platform do
+      :macos   -> ZoneConsole.AccessKit.MacOS.get_tree()
+      :linux   -> ZoneConsole.AccessKit.Linux.get_tree()
+      :windows -> ZoneConsole.AccessKit.Windows.get_tree()
+    end
+  end
+end
 ```
 
-Windows and macOS builds are produced locally then published to the GitHub
-release via `fly storage cp` to Tigris:
-
-```sh
-# macOS ARM
-MIX_TARGET=macos-arm mix escript.build
-fly storage cp zone_console \
-  tigris://uro-uploads/releases/zone_console-macos-arm
-
-# Windows (cross-compile from macOS via Wine or CI)
-```
-
-## Cloudflare edge validation
-
-After all platform tests pass, run a final latency check from each geography
-using Cloudflare Workers:
-
-```sh
-curl "https://uro.chibifire.com/healthz" \
-  -H "CF-IPCountry: CA" -sw "\nLatency: %{time_total}s\n" -o /dev/null
-```
-
-Target: < 100 ms from Toronto. Cloudflare's `yyz` PoP should hit the
-`multiplayer-fabric-uro` Fly machine in `yyz` with < 5 ms internal latency.
+Each implementation calls the platform's native accessibility API via a
+Port or NIF. Stub with `{:ok, %{nodes: []}}` until each platform is wired.

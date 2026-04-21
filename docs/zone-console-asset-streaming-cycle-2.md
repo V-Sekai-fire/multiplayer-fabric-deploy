@@ -8,15 +8,25 @@
 ## What you get
 
 `UroClient.upload_asset/3` chunks a local scene file via AriaStorage, uploads
-the chunks to Tigris (Fly.io S3), and registers a manifest entry in uro.
+chunks to VersityGW (local S3), and registers a manifest entry in uro.
 Returns `{:ok, id}` where `id` is the asset UUID.
 
-## Infrastructure
+## Infrastructure path
 
-Chunks land in Tigris bucket `uro-uploads` via `AWS_S3_ENDPOINT=https://fly.storage.tigris.dev`.
-Tigris is Fly.io-native and includes global CDN at no egress cost. The uro
-backend at `https://uro.chibifire.com` records the manifest (name, chunks,
-store_url) in CockroachDB.
+```
+zone_console (macOS)
+  → AriaStorage.process_file/2
+  → chunks written to VersityGW (http://localhost:7070, bucket uro-uploads)
+  → HTTPS POST /storage
+  → Cloudflare Tunnel → zone-backend:4000
+  → manifest stored in CockroachDB
+  → {:ok, id}
+```
+
+VersityGW is the S3-compatible object store running in Docker on port 7070.
+`zone_console` writes chunks directly to `localhost:7070` (plain HTTP, no
+Cloudflare in this path). Only the manifest registration goes through the
+Cloudflare Tunnel.
 
 ## RED — failing test
 
@@ -26,21 +36,23 @@ File: `test/zone_console/uro_client_upload_test.exs`
 defmodule ZoneConsole.UroClientUploadTest do
   use ExUnit.Case, async: false
 
+  defp authed_client do
+    ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
+    |> then(fn c ->
+      {:ok, a} = ZoneConsole.UroClient.login(c,
+        System.fetch_env!("URO_EMAIL"),
+        System.fetch_env!("URO_PASSWORD"))
+      a
+    end)
+  end
+
   @tag :prod
   test "upload_asset stores file and returns non-empty id" do
-    client =
-      ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
-      |> then(fn c ->
-        {:ok, authed} = ZoneConsole.UroClient.login(c,
-          System.fetch_env!("URO_EMAIL"),
-          System.fetch_env!("URO_PASSWORD"))
-        authed
-      end)
-
+    client     = authed_client()
     scene_path = System.fetch_env!("TEST_SCENE_PATH")
-    name = Path.basename(scene_path)
 
-    {:ok, id} = ZoneConsole.UroClient.upload_asset(client, scene_path, name)
+    {:ok, id} = ZoneConsole.UroClient.upload_asset(client, scene_path,
+      Path.basename(scene_path))
 
     assert is_binary(id)
     assert byte_size(id) > 0
@@ -48,20 +60,11 @@ defmodule ZoneConsole.UroClientUploadTest do
 
   @tag :prod
   test "uploaded asset is queryable via GET /storage/:id" do
-    client =
-      ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
-      |> then(fn c ->
-        {:ok, authed} = ZoneConsole.UroClient.login(c,
-          System.fetch_env!("URO_EMAIL"),
-          System.fetch_env!("URO_PASSWORD"))
-        authed
-      end)
-
+    client     = authed_client()
     scene_path = System.fetch_env!("TEST_SCENE_PATH")
-    name = Path.basename(scene_path)
-    {:ok, id} = ZoneConsole.UroClient.upload_asset(client, scene_path, name)
+    {:ok, id}  = ZoneConsole.UroClient.upload_asset(client, scene_path,
+      Path.basename(scene_path))
 
-    # Asset must be retrievable
     {:ok, %{status: 200}} =
       Req.get("#{System.fetch_env!("URO_BASE_URL")}/storage/#{id}",
         headers: [{"authorization", "Bearer #{client.access_token}"}])
@@ -69,48 +72,67 @@ defmodule ZoneConsole.UroClientUploadTest do
 end
 ```
 
-Run with:
+Run:
 
 ```sh
 cd multiplayer-fabric-zone-console
-URO_BASE_URL=https://uro.chibifire.com \
-URO_EMAIL=... \
-URO_PASSWORD=... \
+URO_BASE_URL=https://hub-700a.chibifire.com \
+URO_EMAIL=... URO_PASSWORD=... \
 TEST_SCENE_PATH=../multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn \
 AWS_S3_BUCKET=uro-uploads \
-AWS_S3_ENDPOINT=https://fly.storage.tigris.dev \
-AWS_ACCESS_KEY_ID=... \
-AWS_SECRET_ACCESS_KEY=... \
+AWS_S3_ENDPOINT=http://localhost:7070 \
+AWS_ACCESS_KEY_ID=minioadmin \
+AWS_SECRET_ACCESS_KEY=minioadmin \
 mix test --only prod test/zone_console/uro_client_upload_test.exs
 ```
 
 ## GREEN — pass condition
 
-Both tests pass. The asset id is a UUID string. `GET /storage/:id` returns
-HTTP 200 with the asset record.
-
-Verify the chunk landed in Tigris:
+Both tests pass. Confirm the chunk landed in VersityGW:
 
 ```sh
-fly storage ls uro-uploads --app multiplayer-fabric-uro
+# List objects in the bucket via S3 API
+AWS_ACCESS_KEY_ID=minioadmin \
+AWS_SECRET_ACCESS_KEY=minioadmin \
+aws --endpoint-url http://localhost:7070 \
+  s3 ls s3://uro-uploads/ --recursive | head -10
+```
+
+Confirm the manifest record in CockroachDB:
+
+```sh
+docker exec multiplayer-fabric-hosting-crdb-1 \
+  /cockroach/cockroach sql --insecure \
+  -e "SELECT id, name, inserted_at FROM vsekai.shared_files ORDER BY inserted_at DESC LIMIT 3;"
 ```
 
 ## REFACTOR
 
-`UroClient.upload_asset/3` is implemented in `uro_client.ex` via
-`AriaStorage.process_file/2`. If AriaStorage is not yet a hard dep, gate it
-with `Code.ensure_loaded?(AriaStorage)` so the console compiles without it in
-dev environments where Tigris creds are absent.
+If `AriaStorage.process_file/2` is not yet available in the zone_console
+deps, add `{:aria_storage, github: "V-Sekai-fire/aria-storage"}` to
+`mix.exs` and configure it in `config/runtime.exs`:
 
-## Fly.io + Cloudflare checks
-
-```sh
-# Fly.io: confirm POST /storage reached the machine
-fly logs --app multiplayer-fabric-uro | grep "POST /storage"
-
-# Cloudflare: confirm cache status (Storage writes must be MISS, not HIT)
-curl -sI https://uro.chibifire.com/storage/<id> | grep cf-cache-status
+```elixir
+import Config
+config :aria_storage,
+  storage_backend: :s3,
+  s3_bucket:            System.get_env("AWS_S3_BUCKET",    "uro-uploads"),
+  s3_endpoint:          System.get_env("AWS_S3_ENDPOINT",  "http://localhost:7070"),
+  aws_access_key_id:    System.get_env("AWS_ACCESS_KEY_ID"),
+  aws_secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY")
 ```
 
-Cloudflare must not cache POST requests. If `cf-cache-status: HIT` appears on
-a POST, add a Page Rule to bypass cache for `/storage*` POST methods.
+## Cloudflare Tunnel note
+
+`POST /storage` goes through the tunnel. `POST /storage/:id` and the actual
+chunk PUT to VersityGW are direct (bypassing Cloudflare). Cloudflare must not
+cache POST requests. Confirm:
+
+```sh
+curl -sI -X POST https://hub-700a.chibifire.com/storage \
+  -H "Authorization: Bearer $TOKEN" | grep -i cf-cache-status
+# must be DYNAMIC or MISS, never HIT
+```
+
+If HIT appears, add a Cloudflare Cache Rule: match `URI Path starts with
+/storage`, Cache Status = Bypass.

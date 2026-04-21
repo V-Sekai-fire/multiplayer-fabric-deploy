@@ -8,18 +8,32 @@
 ## What you get
 
 Running `instance <id> <x> <y> <z>` in `zone_console` sends a
-`CMD_INSTANCE_ASSET` packet to the live zone server on Fly.io and receives an
-ACK. This is the first cycle that requires a running zone server.
+`CMD_INSTANCE_ASSET` packet to the live zone server and receives an entity
+snapshot back. First cycle requiring a running zone server.
 
-## Infrastructure
+## Infrastructure path
 
-Zone server app `multiplayer-fabric-zones` on Fly.io listens on UDP 443
-at `zone-700a.chibifire.com`. The console connects via native WebTransport
-(picoquic). Certificate pinning uses `ZONE_CERT_PIN` — the SHA-256 fingerprint
-of the zone server's self-signed cert printed on startup.
+```
+zone_console (macOS)
+  → ZoneClient.send_instance/5
+  → native WebTransport / picoquic
+  → UDP 443 → router NAT
+  → zone-server:443/udp (Docker, host machine)
+  → entity snapshot returned
+```
 
-Cloudflare does not proxy UDP — zone server traffic bypasses Cloudflare and
-reaches Fly.io directly.
+Zone server traffic is **not** proxied by Cloudflare. The client connects
+directly to `zone-700a.chibifire.com:443` using UDP (QUIC). The connection
+is secured by the zone server's self-signed certificate, pinned via
+`ZONE_CERT_PIN` (SHA-256 fingerprint of the cert).
+
+Obtain the cert fingerprint after the zone-server container starts:
+
+```sh
+docker exec multiplayer-fabric-hosting-zone-server-1 \
+  sh -c "openssl x509 -in /zone/certs/server.crt -noout -fingerprint -sha256 2>/dev/null \
+    || cat /zone/certs/cert_hash.txt"
+```
 
 ## RED — failing test
 
@@ -30,62 +44,66 @@ defmodule ZoneConsole.InstanceCommandTest do
   use ExUnit.Case, async: false
 
   @tag :prod
-  test "instance command reaches zone server and gets ACK" do
+  test "instance command reaches zone server and gets entity snapshot" do
     url      = System.fetch_env!("ZONE_SERVER_URL")
     cert_pin = System.fetch_env!("ZONE_CERT_PIN")
-    asset_id = System.fetch_env!("TEST_ASSET_ID")  # from a prior Cycle 2 upload
+    asset_id = System.fetch_env!("TEST_ASSET_ID")
 
     player_id = :rand.uniform(0x7FFFFFFF)
+    {:ok, zc} = ZoneConsole.ZoneClient.start_link(url, cert_pin, player_id, self())
 
-    {:ok, client} = ZoneConsole.ZoneClient.start_link(url, cert_pin, player_id, self())
+    ZoneConsole.ZoneClient.send_instance(zc,
+      String.to_integer(asset_id), 0.0, 1.0, 0.0)
 
-    ZoneConsole.ZoneClient.send_instance(client, String.to_integer(asset_id),
-      0.0, 1.0, 0.0)
-
-    # Zone server sends a CH_ACK or entity snapshot within one RTT (500 ms)
     assert_receive {:zone_entities, entities}, 500
     assert is_map(entities)
 
-    ZoneConsole.ZoneClient.stop(client)
+    ZoneConsole.ZoneClient.stop(zc)
   end
 end
 ```
 
-Run with:
+Run:
 
 ```sh
 cd multiplayer-fabric-zone-console
 ZONE_SERVER_URL=https://zone-700a.chibifire.com \
-ZONE_CERT_PIN=... \
-TEST_ASSET_ID=<id from cycle 2> \
+ZONE_CERT_PIN=<fingerprint> \
+TEST_ASSET_ID=<id from Cycle 2> \
 mix test --only prod test/zone_console/instance_command_test.exs
 ```
 
 ## GREEN — pass condition
 
-The test passes. `{:zone_entities, entities}` is received within 500 ms.
-The zone server logs show `CMD_INSTANCE_ASSET` was received:
+Test passes and `{:zone_entities, entities}` is received within 500 ms.
+
+Confirm the packet arrived at the zone server:
 
 ```sh
-fly logs --app multiplayer-fabric-zones | grep "CMD_INSTANCE_ASSET"
+docker logs multiplayer-fabric-hosting-zone-server-1 2>&1 | \
+  grep "CMD_INSTANCE_ASSET"
 ```
 
 ## REFACTOR
 
-If the send_instance + assert_receive pattern is used in more tests, extract a
-`ZoneConsole.TestClient` helper that connects, sends one command, collects the
-next entity snapshot, and disconnects.
+Extract a `ZoneConsole.TestHelpers.with_zone_client/3` helper that starts
+a ZoneClient, runs a function, stops the client, and returns the result.
+Reuse it in Cycle 9's round-trip test.
 
-## Fly.io checks
+## Cloudflare DNS note
+
+`zone-700a.chibifire.com` is an A record pointing to the host machine's
+public IP (`173.180.240.105`). Cloudflare must have the proxy toggle
+**disabled** (DNS only, grey cloud) for this record — proxying would
+intercept QUIC traffic. Confirm:
 
 ```sh
-# Confirm zone machine is running
-fly status --app multiplayer-fabric-zones
+dig zone-700a.chibifire.com +short
+# must resolve to the host machine public IP, not Cloudflare's IPs
+```
 
-# Watch live logs during the test
-fly logs --app multiplayer-fabric-zones
+Router must forward UDP 443 to the host machine. Confirm from outside:
 
-# Print zone cert fingerprint (needed for ZONE_CERT_PIN)
-fly ssh console --app multiplayer-fabric-zones -C \
-  "openssl x509 -in /etc/zone/server.crt -noout -fingerprint -sha256"
+```sh
+nc -u zone-700a.chibifire.com 443
 ```

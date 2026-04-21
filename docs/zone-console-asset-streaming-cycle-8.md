@@ -8,100 +8,86 @@
 ## What you get
 
 The authority zone's C++ process receives `CMD_INSTANCE_ASSET`, runs the
-taskweft pipeline (fetch → verify → sandbox_load → instantiate), and
-broadcasts a `CH_INTEREST` ghost to neighbouring zones. The Elixir deploy
-library wires the pipeline steps.
+taskweft pipeline (fetch_manifest → sha_verify → sandbox_load →
+structural_verify → instantiate → broadcast_interest_ghost), and the new
+entity appears in the zone entity list.
 
-## Pipeline (zone server side)
+## Infrastructure path
 
 ```
-FabricMMOGPeer::_process_peer_packet (C++)
-  case CMD_INSTANCE_ASSET:
-    → extract asset_id (two u32 slots), pos (three f32 slots)
-    → rebacCheck: caller needs instanceMember or owner
-    → FabricMMOGAsset::run_instance_pipeline(asset_id, pos)
-
-run_instance_pipeline:
-  1. fetch_manifest   GET /storage/:id/manifest (via UroClient NIF)
-  2. download_chunks  casync pull from Tigris store_url
-  3. sha_verify       SHA-512/256 per chunk
-  4. sandbox_load     Sandbox::create_from_path(scene_path)  ← RISC-V VM
-  5. structural_verify root_node_type ∈ allowed, node_count ≤ 10k, no res:// refs
-  6. instantiate      Node::add_child() at pos
-  7. broadcast        CH_INTEREST ghost to AOI_CELLS neighbours
+zone_console
+  → send_instance via WebTransport (UDP 443 direct)
+  → zone-server (Docker, host machine)
+      FabricMMOGPeer::_process_peer_packet
+        case CMD_INSTANCE_ASSET:
+          rebacCheck
+          FabricMMOGAsset::run_instance_pipeline
+            GET /storage/:id/manifest → hub-700a.chibifire.com (via Cloudflare Tunnel)
+            download chunks from versitygw:7070 (direct Docker network)
+            sha_verify
+            Sandbox::create_from_path (RISC-V VM)
+            structural_verify
+            Node::add_child at pos
+            broadcast CH_INTEREST ghost
 ```
 
-Authority rule: only the zone whose Hilbert range contains `hilbert3D(pos)`
-executes this pipeline. A `CMD_INSTANCE_ASSET` arriving at a non-authority
-zone is forwarded, not executed locally.
+The zone server calls `hub-700a.chibifire.com` for manifest fetches. Inside
+Docker, `zone-backend` is reachable directly at `http://zone-backend:4000` —
+the C++ client can use either the public hostname or the Docker service name.
 
-## RED — failing tests
+## RED — failing test
 
-File: `test/multiplayer_fabric_deploy/zone_asset_streaming_integration_test.exs`
-(already exists — 18 tests that exercise the Elixir side of the pipeline)
+The 18 Elixir-side tests in `multiplayer-fabric-deploy` already cover the
+pipeline steps in isolation. The new test that requires a live zone server:
 
-For the C++ side, the pass condition is a live zone server log entry. The
-Elixir tests below verify the routing and pipeline contracts before the C++
-handler is wired:
+File: `test/zone_console/zone_handler_test.exs`
 
 ```elixir
-# Existing tests already cover:
-#   structural_verify — 4 cases (valid, bad root type, too many nodes, external refs)
-#   authority_invariant — authority executes, non-authority does not
-#   broadcast_interest_ghost — returns {:ok, %{message_type: :ch_interest, ...}}
-#   instantiate — returns {:ok, %{position: pos, state: :active}}
-#
-# New test needed for the full C++ dispatch path (requires live zone server):
+defmodule ZoneConsole.ZoneHandlerTest do
+  use ExUnit.Case, async: false
 
-@tag :prod
-test "CMD_INSTANCE_ASSET arrives at authority zone and appears in entity list",
-     %{zone_server_url: url, cert_pin: pin} do
-  client =
-    ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
-    |> then(fn c ->
-      {:ok, a} = ZoneConsole.UroClient.login(c,
-        System.fetch_env!("URO_EMAIL"), System.fetch_env!("URO_PASSWORD"))
-      a
+  @tag :prod
+  test "CMD_INSTANCE_ASSET reaches authority zone and entity appears in list" do
+    url      = System.fetch_env!("ZONE_SERVER_URL")
+    pin      = System.fetch_env!("ZONE_CERT_PIN")
+    asset_id = String.to_integer(System.fetch_env!("TEST_ASSET_ID"))
+
+    {:ok, zc} = ZoneConsole.ZoneClient.start_link(url, pin, 1, self())
+    ZoneConsole.ZoneClient.send_instance(zc, asset_id, 0.0, 1.0, 0.0)
+
+    assert_receive {:zone_entities, entities}, 2_000
+
+    found = Enum.any?(Map.values(entities), fn e ->
+      abs(e.cy - 1.0) < 0.5
     end)
+    assert found, "entity near y=1.0 must appear in zone entity list"
 
-  scene_path = System.fetch_env!("TEST_SCENE_PATH")
-  {:ok, asset_id} = ZoneConsole.UroClient.upload_asset(client, scene_path,
-    Path.basename(scene_path))
-
-  # Wait for baker
-  {:ok, manifest} = poll_for_baked_url(client, asset_id, 30)
-
-  # Send instance command
-  {:ok, zone_client} = ZoneConsole.ZoneClient.start_link(url, pin, 1, self())
-  ZoneConsole.ZoneClient.send_instance(zone_client, String.to_integer(asset_id),
-    0.0, 1.0, 0.0)
-
-  # Expect entity snapshot containing the new node
-  assert_receive {:zone_entities, entities}, 2_000
-  assert Map.values(entities) |> Enum.any?(fn e ->
-    abs(e.cy - 1.0) < 0.1
-  end), "entity should appear near y=1.0"
-
-  ZoneConsole.ZoneClient.stop(zone_client)
+    ZoneConsole.ZoneClient.stop(zc)
+  end
 end
 ```
 
-Run with:
+Run:
 
 ```sh
 cd multiplayer-fabric-zone-console
-URO_BASE_URL=https://uro.chibifire.com \
+URO_BASE_URL=https://hub-700a.chibifire.com \
 ZONE_SERVER_URL=https://zone-700a.chibifire.com \
-ZONE_CERT_PIN=... URO_EMAIL=... URO_PASSWORD=... \
-TEST_SCENE_PATH=../multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn \
-AWS_S3_BUCKET=uro-uploads AWS_S3_ENDPOINT=https://fly.storage.tigris.dev \
-AWS_ACCESS_KEY_ID=... AWS_SECRET_ACCESS_KEY=... \
-mix test --only prod
+ZONE_CERT_PIN=<fingerprint> \
+TEST_ASSET_ID=<id from Cycle 2> \
+mix test --only prod test/zone_console/zone_handler_test.exs
 ```
 
 ## GREEN — pass condition
 
-The new prod test passes. Zone server logs show:
+Test passes. Zone server Docker logs show the complete pipeline:
+
+```sh
+docker logs multiplayer-fabric-hosting-zone-server-1 2>&1 | \
+  grep -E "CMD_INSTANCE_ASSET|fetch_manifest|sha_verify|sandbox_load|instantiate"
+```
+
+Expected log lines:
 
 ```
 CMD_INSTANCE_ASSET received asset=<id> pos=(0.0,1.0,0.0)
@@ -111,25 +97,25 @@ pipeline: sha_verify OK
 pipeline: sandbox_load OK
 pipeline: structural_verify OK
 pipeline: instantiate OK pos=(0.0,1.0,0.0)
-pipeline: broadcast CH_INTEREST to 0 neighbours
 ```
 
-## REFACTOR
+## Implementation
 
-After green, collapse `run_instance_pipeline` steps 1-3 into a
-`FabricMMOGAsset::fetch_and_verify(asset_id)` method that returns a
-scene_path or error. This isolates network I/O from the verification logic
-and makes each step independently unit-testable.
+In `multiplayer-fabric-godot`:
 
-## Fly.io rebuild
+1. `FabricMMOGPeer::_process_peer_packet` — add `case CMD_INSTANCE_ASSET:`
+2. Extract `asset_id` from payload[1]/[2], `pos` from payload[3-5]
+3. `rebacCheck(caller, "instanceMember")` — return error packet if denied
+4. `FabricMMOGAsset::run_instance_pipeline(asset_id, pos)`
+
+Rebuild the zone server Docker image and restart:
 
 ```sh
-# rebuild zone server image with C++ CMD_INSTANCE_ASSET handler
 cd multiplayer-fabric-godot
 docker build --target zone-server \
-  -t registry.fly.io/multiplayer-fabric-zones:latest .
-fly auth docker
-docker push registry.fly.io/multiplayer-fabric-zones:latest
-fly deploy --app multiplayer-fabric-zones
-fly logs --app multiplayer-fabric-zones
+  -t multiplayer-fabric-godot-server:latest -f Dockerfile .
+
+cd multiplayer-fabric-hosting
+docker compose up -d zone-server
+docker logs -f multiplayer-fabric-hosting-zone-server-1
 ```

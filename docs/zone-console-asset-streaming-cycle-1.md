@@ -7,14 +7,24 @@
 ## What you get
 
 `UroClient.login/3` authenticates against the live uro backend at
-`https://uro.chibifire.com` and returns a bearer token. Every subsequent cycle
-depends on this token.
+`https://hub-700a.chibifire.com` and returns a bearer token. Every
+subsequent cycle depends on this token.
 
-## Infrastructure
+## Infrastructure path
 
-Cloudflare proxies `uro.chibifire.com` → Fly.io app `multiplayer-fabric-uro`
-(region `yyz`). TLS terminates at Cloudflare; the Fly machine is never exposed
-directly. The `/session` endpoint is public (no prior token required).
+```
+zone_console (macOS)
+  → HTTPS POST /session
+  → Cloudflare edge (TLS termination)
+  → Cloudflare Tunnel (HTTP/1.1)
+  → cloudflared container
+  → zone-backend:4000 (Phoenix)
+  → returns Bearer token
+```
+
+Cloudflare terminates TLS. The tunnel sends plain HTTP/1.1 to
+`zone-backend:4000` on the Docker network. No certificate handling
+needed in the client — standard HTTPS via system CA.
 
 ## RED — failing test
 
@@ -37,45 +47,60 @@ defmodule ZoneConsole.UroClientLoginTest do
     assert byte_size(authed.access_token) > 0
     assert is_map(authed.user)
   end
+
+  @tag :prod
+  test "login with wrong password returns error tuple, not raise" do
+    client = ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
+    result = ZoneConsole.UroClient.login(client, "nobody@example.com", "wrong")
+    assert match?({:error, _}, result)
+  end
 end
 ```
 
-Run with:
+Run:
 
 ```sh
 cd multiplayer-fabric-zone-console
-URO_BASE_URL=https://uro.chibifire.com \
-URO_EMAIL=... \
-URO_PASSWORD=... \
+URO_BASE_URL=https://hub-700a.chibifire.com \
+URO_EMAIL=... URO_PASSWORD=... \
 mix test --only prod test/zone_console/uro_client_login_test.exs
 ```
 
-Expected failure before implementation: `** (KeyError) key "URO_BASE_URL" not found` or
-HTTP 4xx if credentials are wrong.
-
 ## GREEN — pass condition
 
-The test passes. `authed.access_token` is a non-empty string. `authed.user` is
-a map containing at least a `"username"` key.
+Both tests pass.
 
-Verify manually:
+Verify the stack received the request:
 
 ```sh
-curl -s -X POST https://uro.chibifire.com/session \
+# Cloudflare edge — check CF-Ray in response headers
+curl -sI -X POST https://hub-700a.chibifire.com/session \
   -H "Content-Type: application/json" \
-  -d '{"user":{"email":"<email>","password":"<pw>"}}' | jq .
+  -d '{"user":{"email":"...","password":"..."}}' | grep -i cf-ray
+
+# cloudflared container — request appears in tunnel logs
+docker logs multiplayer-fabric-hosting-cloudflared-1 2>&1 | grep "POST /session"
+
+# zone-backend — Phoenix log line
+docker logs multiplayer-fabric-hosting-zone-backend-1 2>&1 | grep "POST /session"
 ```
 
 ## REFACTOR
 
-No structural changes needed for this cycle. `UroClient.login/3` already exists
-in `zone_console/uro_client.ex`. The test is the deliverable.
+`UroClient.login/3` is already implemented. The test is the deliverable.
+Ensure the file is in `test/zone_console/` and tagged `:prod` so it is
+excluded from the default `mix test` run.
 
-## Fly.io check
+## Cloudflare Tunnel note
+
+The tunnel ingress config routes `hub-700a.chibifire.com →
+http://zone-backend:4000`. If the CF dashboard has the origin set to
+HTTPS, the tunnel will fail with a TLS handshake error. Set origin protocol
+to **HTTP** in the tunnel Public Hostname settings.
+
+Confirm the tunnel is healthy:
 
 ```sh
-fly logs --app multiplayer-fabric-uro | grep "POST /session"
+docker logs multiplayer-fabric-hosting-cloudflared-1 2>&1 | grep "Registered tunnel"
+# expect 4 lines, one per edge connection
 ```
-
-Confirm the request appears in Fly.io logs, proving it reached the machine and
-was not short-circuited at Cloudflare.
