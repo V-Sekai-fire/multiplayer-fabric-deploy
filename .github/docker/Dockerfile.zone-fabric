@@ -18,9 +18,9 @@ RUN mix local.hex --force && mix local.rebar --force
 
 WORKDIR /build
 COPY zone_console/mix.exs zone_console/mix.lock ./
-COPY zone_console/vendor ./vendor
 RUN MIX_ENV=prod mix deps.get --only prod
 COPY zone_console/lib ./lib
+COPY zone_console/native ./native
 RUN MIX_ENV=prod mix escript.build
 
 # ── Runtime ───────────────────────────────────────────────────────────────────
