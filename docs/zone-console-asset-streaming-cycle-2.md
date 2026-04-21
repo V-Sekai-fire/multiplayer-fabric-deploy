@@ -1,36 +1,116 @@
-# Cycle 2 — UroClient.upload_asset/3
+# Cycle 2 — `UroClient.upload_asset/3`
 
-**Status:** [x] done  
+**Status:** [ ] RED  
 **Effort:** Medium  
-**Back:** [index](zone-console-asset-streaming.md)
+**Back:** [index](zone-console-asset-streaming.md)  
+**Depends on:** Cycle 1
 
 ## What you get
 
-`UroClient.upload_asset/3` chunks the scene file via casync, uploads chunks
-to S3 (VersityGW), and registers a manifest with uro.
+`UroClient.upload_asset/3` chunks a local scene file via AriaStorage, uploads
+the chunks to Tigris (Fly.io S3), and registers a manifest entry in uro.
+Returns `{:ok, id}` where `id` is the asset UUID.
 
-## Implementation
+## Infrastructure
 
-`multiplayer-fabric-zone-console/lib/zone_console/uro_client.ex`.  
-Dependency `{:aria_storage, github: "V-Sekai-fire/aria-storage"}` in
-`multiplayer-fabric-zone-console/mix.exs`.
+Chunks land in Tigris bucket `uro-uploads` via `AWS_S3_ENDPOINT=https://fly.storage.tigris.dev`.
+Tigris is Fly.io-native and includes global CDN at no egress cost. The uro
+backend at `https://uro.chibifire.com` records the manifest (name, chunks,
+store_url) in CockroachDB.
 
-1. `AriaStorage.process_file(path, backend: :s3)` → `{:ok, %{chunks, store_url}}`
-2. POST `/storage` with `{name, chunks, store_url}` + Bearer token
-3. Return `{:ok, id}`
+## RED — failing test
 
-S3 configured in `multiplayer-fabric-zone-console/config/runtime.exs`:
+File: `test/zone_console/uro_client_upload_test.exs`
 
 ```elixir
-config :aria_storage,
-  storage_backend: :s3,
-  s3_bucket: System.get_env("AWS_S3_BUCKET", "uro-uploads"),
-  s3_endpoint: System.get_env("AWS_S3_ENDPOINT", "http://localhost:7070"),
-  aws_access_key_id: System.get_env("AWS_ACCESS_KEY_ID"),
-  aws_secret_access_key: System.get_env("AWS_SECRET_ACCESS_KEY")
+defmodule ZoneConsole.UroClientUploadTest do
+  use ExUnit.Case, async: false
+
+  @tag :prod
+  test "upload_asset stores file and returns non-empty id" do
+    client =
+      ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
+      |> then(fn c ->
+        {:ok, authed} = ZoneConsole.UroClient.login(c,
+          System.fetch_env!("URO_EMAIL"),
+          System.fetch_env!("URO_PASSWORD"))
+        authed
+      end)
+
+    scene_path = System.fetch_env!("TEST_SCENE_PATH")
+    name = Path.basename(scene_path)
+
+    {:ok, id} = ZoneConsole.UroClient.upload_asset(client, scene_path, name)
+
+    assert is_binary(id)
+    assert byte_size(id) > 0
+  end
+
+  @tag :prod
+  test "uploaded asset is queryable via GET /storage/:id" do
+    client =
+      ZoneConsole.UroClient.new(System.fetch_env!("URO_BASE_URL"))
+      |> then(fn c ->
+        {:ok, authed} = ZoneConsole.UroClient.login(c,
+          System.fetch_env!("URO_EMAIL"),
+          System.fetch_env!("URO_PASSWORD"))
+        authed
+      end)
+
+    scene_path = System.fetch_env!("TEST_SCENE_PATH")
+    name = Path.basename(scene_path)
+    {:ok, id} = ZoneConsole.UroClient.upload_asset(client, scene_path, name)
+
+    # Asset must be retrievable
+    {:ok, %{status: 200}} =
+      Req.get("#{System.fetch_env!("URO_BASE_URL")}/storage/#{id}",
+        headers: [{"authorization", "Bearer #{client.access_token}"}])
+  end
+end
 ```
 
-## Pass condition
+Run with:
 
-`UroClient.upload_asset/3` returns `{:ok, id}` and the asset id is queryable
-via `GET /storage/:id` on the uro API.
+```sh
+cd multiplayer-fabric-zone-console
+URO_BASE_URL=https://uro.chibifire.com \
+URO_EMAIL=... \
+URO_PASSWORD=... \
+TEST_SCENE_PATH=../multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn \
+AWS_S3_BUCKET=uro-uploads \
+AWS_S3_ENDPOINT=https://fly.storage.tigris.dev \
+AWS_ACCESS_KEY_ID=... \
+AWS_SECRET_ACCESS_KEY=... \
+mix test --only prod test/zone_console/uro_client_upload_test.exs
+```
+
+## GREEN — pass condition
+
+Both tests pass. The asset id is a UUID string. `GET /storage/:id` returns
+HTTP 200 with the asset record.
+
+Verify the chunk landed in Tigris:
+
+```sh
+fly storage ls uro-uploads --app multiplayer-fabric-uro
+```
+
+## REFACTOR
+
+`UroClient.upload_asset/3` is implemented in `uro_client.ex` via
+`AriaStorage.process_file/2`. If AriaStorage is not yet a hard dep, gate it
+with `Code.ensure_loaded?(AriaStorage)` so the console compiles without it in
+dev environments where Tigris creds are absent.
+
+## Fly.io + Cloudflare checks
+
+```sh
+# Fly.io: confirm POST /storage reached the machine
+fly logs --app multiplayer-fabric-uro | grep "POST /storage"
+
+# Cloudflare: confirm cache status (Storage writes must be MISS, not HIT)
+curl -sI https://uro.chibifire.com/storage/<id> | grep cf-cache-status
+```
+
+Cloudflare must not cache POST requests. If `cf-cache-status: HIT` appears on
+a POST, add a Page Rule to bypass cache for `/storage*` POST methods.
