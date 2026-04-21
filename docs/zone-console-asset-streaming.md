@@ -63,4 +63,4 @@ The zone-server container listens on UDP 443 and is reachable at `localhost` or
 | 7     | FLAME Zone Orchestrator — Elastic `editor=no` server placement    | High   | [ ]    | [control-plane](zone-console-operational-control-plane.md) |
 | 8     | Godot zone handler — authority zone instances the baked scene     | High   | [ ]    | [cycle-6](zone-console-asset-streaming-cycle-6.md) |
 | 9     | Round-trip integration smoke test                                 | High   | [ ]    | [cycle-7](zone-console-asset-streaming-cycle-7.md) |
-| 10    | Playwright + AccessKit browser smoke test                         | High   | [ ]    | [cycle-8](zone-console-asset-streaming-cycle-8.md) |
+| 10    | Final integration verification across all native platforms (AccessKit) | High   | [ ]    | [cycle-8](zone-console-asset-streaming-cycle-8.md) |

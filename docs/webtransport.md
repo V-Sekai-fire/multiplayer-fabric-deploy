@@ -8,3 +8,4 @@ Native backends leveraging picoquic + picotls + mbedtls across all major desktop
 | `linux-pcvr`   | picoquic native | Client — PCVR on Steam Frame          |
 | `macos`        | picoquic native | Client — Native ARM64/x86_64          |
 | `windows-pcvr` | picoquic native | Client — Native x86_64 / Windows-PCVR |
+| `windows`      | picoquic native | Client — Native x86_64                |
