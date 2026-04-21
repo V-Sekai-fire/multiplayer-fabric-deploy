@@ -2,7 +2,8 @@
 
 When a raw asset is uploaded to uro, a one-shot Docker container running the
 Godot editor binary (`editor=yes` build) performs the headless import and
-returns the baked artefact. Zone servers carry no editor code.
+returns the baked artefact via the casync format. Zone servers carry no editor
+code.
 
 ## Flow
 
@@ -20,13 +21,28 @@ zone-backend spawns baker container (one-shot, exits when done):
   ↓
 baker container:
   godot --headless --path /scene --import
-  tar .godot/imported → /out/baked.tar.gz
-  PUT /out/baked.tar.gz → versitygw:7070/uro-uploads/<id>.tar.gz
-  POST http://zone-backend:4000/storage/<id>/bake {baked_url: "http://versitygw:7070/..."}
+  # chunk .godot/imported/ via AriaStorage casync
+  AriaStorage.ChunkUploader.chunk_directory("/scene/.godot/imported")
+    → uploads .cacnk files to versitygw:7070/uro-uploads/chunks/<ab>/<cd>/<hash>.cacnk
+  AriaStorage.Index.write_caidx(chunks, "/out/<id>.caidx")
+    → uploads /out/<id>.caidx to versitygw:7070/uro-uploads/<id>.caidx
+  POST http://zone-backend:4000/storage/<id>/bake
+       {baked_url: "http://versitygw:7070/uro-uploads/<id>.caidx"}
   exit 0
   ↓
 zone-backend writes baked_url to CockroachDB shared_files record
 ```
+
+## casync format
+
+Chunks are content-addressed SHA512/256 blobs stored as `.cacnk` files.
+The index (`.caidx`) is a directory-tree manifest that lists each chunk's
+hash and byte offset. Zone clients reconstruct `.godot/imported/` by:
+1. Fetching the `.caidx` index from the `baked_url`
+2. Fetching only missing `.cacnk` chunks (delta sync)
+3. Writing chunks to the local cache
+
+AriaStorage provides the Elixir API for both baker and zone-console sides.
 
 ## Baker image
 
@@ -66,6 +82,7 @@ docker logs multiplayer-fabric-hosting-zone-backend-1 2>&1 | grep "bake"
 
 - Zone server Docker image is smaller by ~150 MB (no editor code).
 - Every zone uses the same baked BVH structure — no import parameter drift.
+- casync delta sync means zone clients only download changed chunks on update.
 - Baking is isolated: a crash in the baker does not affect zone servers.
 - No cloud provider required — runs on the same host machine as the rest of
   the stack.

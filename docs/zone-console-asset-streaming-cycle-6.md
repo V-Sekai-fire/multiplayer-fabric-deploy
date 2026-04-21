@@ -1,4 +1,4 @@
-# Cycle 6 — Asset baker (Docker `editor=yes`)
+# Cycle 6 — Asset baker (Docker `editor=yes`, casync output)
 
 **Status:** [ ] RED  
 **Effort:** Medium  
@@ -9,9 +9,10 @@
 
 When a raw GLB or .tscn is uploaded, uro triggers a Docker container running
 the Godot editor binary in headless mode (`editor=yes` build). The baker runs
-`godot --headless --import`, tarballs `.godot/imported`, uploads the result to
-VersityGW, and updates the manifest with a `baked_url` field. Zone servers
-only fetch the pre-baked artefact — they carry no editor code.
+`godot --headless --import`, chunks `.godot/imported/` via AriaStorage into
+`.cacnk` blobs + a `.caidx` index, uploads both to VersityGW, and updates the
+manifest with a `baked_url` pointing to the `.caidx`. Zone servers only fetch
+the pre-baked casync artefact — they carry no editor code.
 
 ## Infrastructure
 
@@ -19,9 +20,11 @@ only fetch the pre-baked artefact — they carry no editor code.
 zone-backend (Docker)
   → spawn baker container (one-shot, editor=yes image)
   → baker: godot --headless --path /scene --import
-  → baker: tar .godot/imported → upload to versitygw:7070/uro-uploads/
-  → baker: POST /storage/:id/bake {baked_url}
-  → zone-backend: update manifest record in CockroachDB
+  → baker: AriaStorage.ChunkUploader.chunk_directory(".godot/imported")
+           → uploads .cacnk files to versitygw:7070/uro-uploads/chunks/
+  → baker: AriaStorage.Index.write_caidx → upload <id>.caidx to versitygw
+  → baker: POST /storage/:id/bake {baked_url: "http://versitygw:7070/.../id.caidx"}
+  → zone-backend: update baked_url in CockroachDB shared_files record
   → baker container exits
 ```
 
@@ -48,7 +51,7 @@ defmodule ZoneConsole.UroClientBakeTest do
   end
 
   @tag :prod
-  test "uploaded asset manifest includes baked_url after baker completes" do
+  test "uploaded asset manifest has .caidx baked_url after baker completes" do
     client     = authed_client()
     scene_path = System.fetch_env!("TEST_SCENE_PATH")
     {:ok, id}  = ZoneConsole.UroClient.upload_asset(client, scene_path,
@@ -63,6 +66,8 @@ defmodule ZoneConsole.UroClientBakeTest do
       end)
 
     assert is_binary(baked_url), "manifest must have baked_url within 30 s"
+    assert String.ends_with?(baked_url, ".caidx"),
+           "baked_url must point to a casync .caidx index, got: #{baked_url}"
     assert String.contains?(baked_url, "versitygw") or
            String.contains?(baked_url, "localhost") or
            String.contains?(baked_url, "7070"),
@@ -75,21 +80,26 @@ Run with the same env vars as Cycle 2.
 
 ## GREEN — pass condition
 
-Test passes within 30 s. The `baked_url` points to an object in the
-`uro-uploads` bucket on VersityGW. Confirm:
+Test passes within 30 s. The `baked_url` ends in `.caidx` and the object
+exists in the `uro-uploads` bucket on VersityGW. Confirm:
 
 ```sh
 # Baker container was created and exited cleanly
 docker ps -a --filter ancestor=multiplayer-fabric-godot-baker:latest | head -5
 
-# Baked tarball exists in VersityGW
+# .caidx index exists in VersityGW
 AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
   aws --endpoint-url http://localhost:7070 \
-  s3 ls s3://uro-uploads/ | grep ".tar.gz"
+  s3 ls s3://uro-uploads/ | grep ".caidx"
 
-# Manifest now has baked_url
+# .cacnk chunks exist
+AWS_ACCESS_KEY_ID=minioadmin AWS_SECRET_ACCESS_KEY=minioadmin \
+  aws --endpoint-url http://localhost:7070 \
+  s3 ls s3://uro-uploads/chunks/ --recursive | head -5
+
+# Manifest now has .caidx baked_url
 curl -s -X POST https://hub-700a.chibifire.com/storage/<id>/manifest \
-  -H "Authorization: Bearer $TOKEN" | python3 -m json.tool | grep baked_url
+  | python3 -m json.tool | grep baked_url
 ```
 
 ## Implementation steps
@@ -124,10 +134,39 @@ Task.start(fn ->
 end)
 ```
 
-### 3. Add bake endpoint
+### 3. Baker produces casync artefacts
 
-`POST /storage/:id/bake` accepts `{baked_url: ...}` and sets
-`baked_url` on the `shared_files` record. Add the column via migration.
+Baker script (inside the container) after `godot --headless --import`:
+
+```elixir
+# Run inside baker container via mix run --no-halt
+{chunks, index} = AriaStorage.ChunkUploader.chunk_directory(
+  "/scene/.godot/imported",
+  store_url: System.get_env("VERSITYGW_URL") <> "/uro-uploads"
+)
+
+caidx_path = "/out/#{asset_id}.caidx"
+AriaStorage.Index.write_caidx(index, caidx_path)
+
+# Upload .caidx to VersityGW
+AriaStorage.ChunkUploader.upload_file(
+  caidx_path,
+  System.get_env("VERSITYGW_URL") <> "/uro-uploads/#{asset_id}.caidx"
+)
+
+baked_url = System.get_env("VERSITYGW_URL") <> "/uro-uploads/#{asset_id}.caidx"
+
+# Tell zone-backend where the index is
+Req.post!(System.get_env("URO_URL") <> "/storage/#{asset_id}/bake",
+  json: %{baked_url: baked_url},
+  headers: [{"x-baker-token", System.get_env("BAKER_TOKEN")}]
+)
+```
+
+### 4. Bake endpoint (already implemented)
+
+`POST /storage/:id/bake` accepts `{baked_url: "..."}` and writes it to
+`shared_files.baked_url`. Migration and changeset are in place.
 
 ## REFACTOR
 
