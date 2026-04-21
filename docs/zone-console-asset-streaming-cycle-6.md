@@ -1,6 +1,6 @@
 # Cycle 6 — Godot zone: handle CMD_INSTANCE_ASSET
 
-**Status:** [ ] not started  
+**Status:** [/] Elixir pipeline implemented and tested (18/18 tests green); Godot C++ zone handler pending  
 **Effort:** High  
 **Back:** [index](zone-console-asset-streaming.md)
 

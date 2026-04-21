@@ -52,15 +52,15 @@ The zone-server container listens on UDP 443 and is reachable at `localhost` or
 
 ## Cycles
 
-| Cycle | What you get                                                      | Effort | Status | Detail |
-| ----- | ----------------------------------------------------------------- | ------ | ------ | ------ |
-| 1     | `upload <path>` command — user can store a scene                  | Low    | [x]    | [cycle-1](zone-console-asset-streaming-cycle-1.md) |
-| 2     | `UroClient.upload_asset/3` — casync chunk → S3 → uro manifest     | Medium | [x]    | [cycle-2](zone-console-asset-streaming-cycle-2.md) |
-| 3     | `CMD_INSTANCE_ASSET` wire encoding — protocol ready               | Low    | [x]    | [cycle-3](zone-console-asset-streaming-cycle-3.md) |
-| 4     | `instance <id> <x> <y> <z>` command — user can trigger instancing | Low    | [x]    | [cycle-4](zone-console-asset-streaming-cycle-4.md) |
-| 5     | `UroClient.get_manifest/2` — chunk manifest fetch                 | Low    | [x]    | [cycle-5](zone-console-asset-streaming-cycle-5.md) |
-| 6     | FLAME Asset Baker — Ephemeral SCons `editor=yes` import pipeline  | Medium | [/]    | [flame-bake](ephemeral-asset-bake-microservice.md) |
-| 7     | FLAME Zone Orchestrator — Elastic `editor=no` server placement    | High   | [ ]    | [control-plane](zone-console-operational-control-plane.md) |
-| 8     | Godot zone handler — authority zone instances the baked scene     | High   | [ ]    | [cycle-6](zone-console-asset-streaming-cycle-6.md) |
-| 9     | Round-trip integration smoke test                                 | High   | [ ]    | [cycle-7](zone-console-asset-streaming-cycle-7.md) |
+| Cycle | What you get                                                           | Effort | Status | Detail |
+| ----- | ---------------------------------------------------------------------- | ------ | ------ | ------ |
+| 1     | `upload <path>` command — user can store a scene                       | Low    | [x]    | [cycle-1](zone-console-asset-streaming-cycle-1.md) |
+| 2     | `UroClient.upload_asset/3` — casync chunk → S3 → uro manifest          | Medium | [x]    | [cycle-2](zone-console-asset-streaming-cycle-2.md) |
+| 3     | `CMD_INSTANCE_ASSET` wire encoding — protocol ready                    | Low    | [x]    | [cycle-3](zone-console-asset-streaming-cycle-3.md) |
+| 4     | `instance <id> <x> <y> <z>` command — user can trigger instancing      | Low    | [x]    | [cycle-4](zone-console-asset-streaming-cycle-4.md) |
+| 5     | `UroClient.get_manifest/2` — chunk manifest fetch                      | Low    | [x]    | [cycle-5](zone-console-asset-streaming-cycle-5.md) |
+| 6     | FLAME Asset Baker — Ephemeral SCons `editor=yes` import pipeline       | Medium | [/]    | [flame-bake](ephemeral-asset-bake-microservice.md) |
+| 7     | FLAME Zone Orchestrator — Elastic `editor=no` server placement         | High   | [ ]    | [control-plane](zone-console-operational-control-plane.md) |
+| 8     | Godot zone handler — authority zone instances the baked scene          | High   | [/]    | [cycle-6](zone-console-asset-streaming-cycle-6.md) |
+| 9     | Round-trip integration smoke test                                      | High   | [ ]    | [cycle-7](zone-console-asset-streaming-cycle-7.md) |
 | 10    | Final integration verification across all native platforms (AccessKit) | High   | [ ]    | [cycle-8](zone-console-asset-streaming-cycle-8.md) |
