@@ -142,8 +142,8 @@ AWS_SECRET_ACCESS_KEY=<secret>
 | 3     | `UroClient.get_manifest/2` — fetch chunk manifest from prod           | Low    | [x]    |
 | 4     | `CMD_INSTANCE_ASSET` wire encoding — 100-byte packet verified         | Low    | [x]    |
 | 5     | `instance` console command — sends packet to zone server              | Low    | [x]    |
-| 6     | Asset baker — Docker `editor=yes` headless import on host             | Medium | [ ]    |
-| 7     | Zone orchestrator — Docker `editor=no` zone server lifecycle          | High   | [ ]    |
+| 6     | Asset baker — Docker `editor=yes` headless import on host             | Medium | [x]    |
+| 7     | Zone orchestrator — Docker `editor=no` zone server lifecycle          | High   | [x]    |
 | 8     | Godot zone handler — authority zone runs instance pipeline            | High   | [ ]    |
 | 9     | Round-trip smoke test — upload → instance → entity list on prod       | High   | [ ]    |
 | 10    | Multi-platform verification — macOS + Linux + Windows, AccessKit      | High   | [ ]    |
