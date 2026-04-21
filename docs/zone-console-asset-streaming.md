@@ -137,11 +137,11 @@ AWS_SECRET_ACCESS_KEY=<secret>
 
 | Cycle | What you get                                                           | Effort | Status |
 | ----- | ---------------------------------------------------------------------- | ------ | ------ |
-| 1     | `UroClient.login/3` — authenticate against prod uro                   | Low    | [ ]    |
-| 2     | `UroClient.upload_asset/3` — chunk → VersityGW → uro manifest         | Medium | [ ]    |
-| 3     | `UroClient.get_manifest/2` — fetch chunk manifest from prod           | Low    | [ ]    |
-| 4     | `CMD_INSTANCE_ASSET` wire encoding — 100-byte packet verified         | Low    | [ ]    |
-| 5     | `instance` console command — sends packet to zone server              | Low    | [ ]    |
+| 1     | `UroClient.login/3` — authenticate against prod uro                   | Low    | [x]    |
+| 2     | `UroClient.upload_asset/3` — chunk → VersityGW → uro manifest         | Medium | [x]    |
+| 3     | `UroClient.get_manifest/2` — fetch chunk manifest from prod           | Low    | [x]    |
+| 4     | `CMD_INSTANCE_ASSET` wire encoding — 100-byte packet verified         | Low    | [x]    |
+| 5     | `instance` console command — sends packet to zone server              | Low    | [x]    |
 | 6     | Asset baker — Docker `editor=yes` headless import on host             | Medium | [ ]    |
 | 7     | Zone orchestrator — Docker `editor=no` zone server lifecycle          | High   | [ ]    |
 | 8     | Godot zone handler — authority zone runs instance pipeline            | High   | [ ]    |
