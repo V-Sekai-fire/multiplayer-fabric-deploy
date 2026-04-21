@@ -20,23 +20,17 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout multiplayer-fabric-godot (Dockerfile only)
-        uses: actions/checkout@v4
-        with:
-          repository: V-Sekai-fire/multiplayer-fabric-godot
-          ref: main
-          token: ${{ secrets.GODOT_CI_TOKEN }}
-          sparse-checkout: |
-            .github/docker/Dockerfile.zone-fabric
-          sparse-checkout-cone-mode: false
+      - name: Fetch Dockerfile.zone-fabric
+        run: |
+          curl -fsSL \
+            https://raw.githubusercontent.com/V-Sekai-fire/multiplayer-fabric-godot/main/.github/docker/Dockerfile.zone-fabric \
+            -o Dockerfile.zone-fabric
 
-      - name: Checkout multiplayer-fabric-zone-console
-        uses: actions/checkout@v4
-        with:
-          repository: V-Sekai-fire/multiplayer-fabric-zone-console
-          ref: main
-          token: ${{ secrets.GODOT_CI_TOKEN }}
-          path: zone-console-src
+      - name: Clone multiplayer-fabric-zone-console
+        run: |
+          git clone --depth 1 \
+            https://github.com/V-Sekai-fire/multiplayer-fabric-zone-console.git \
+            zone-console-src
 
       - name: Resolve godot run ID
         id: run-id
@@ -71,7 +65,7 @@ jobs:
           mkdir -p docker-ctx-zone
           cp -r godot-bin docker-ctx-zone/godot-bin
           cp -r zone-console-src docker-ctx-zone/zone_console
-          cp .github/docker/Dockerfile.zone-fabric docker-ctx-zone/Dockerfile
+          cp Dockerfile.zone-fabric docker-ctx-zone/Dockerfile
 
       - name: Docker metadata
         id: meta
