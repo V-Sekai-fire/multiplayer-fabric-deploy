@@ -64,9 +64,6 @@ jobs:
           cp -r zone-console-src docker-ctx-zone/zone_console
           cp .github/docker/Dockerfile.zone-fabric docker-ctx-zone/Dockerfile
 
-      - name: Debug build context
-        run: find docker-ctx-zone/zone_console -maxdepth 1 | sort
-
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@v5
