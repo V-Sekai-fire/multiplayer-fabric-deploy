@@ -144,6 +144,6 @@ AWS_SECRET_ACCESS_KEY=<secret>
 | 5     | `instance` console command — sends packet to zone server              | Low    | [x]    |
 | 6     | Asset baker — Docker `editor=yes` headless import on host             | Medium | [x]    |
 | 7     | Zone orchestrator — Docker `editor=no` zone server lifecycle          | High   | [x]    |
-| 8     | Godot zone handler — authority zone runs instance pipeline            | High   | [ ]    |
-| 9     | Round-trip smoke test — upload → instance → entity list on prod       | High   | [ ]    |
-| 10    | Multi-platform verification — macOS + Linux + Windows, AccessKit      | High   | [ ]    |
+| 8     | Godot zone handler — authority zone runs instance pipeline            | High   | [x]    |
+| 9     | Round-trip smoke test — upload → instance → entity list on prod       | High   | [x]    |
+| 10    | Multi-platform verification — macOS + Linux + Windows, AccessKit      | High   | [x]    |
