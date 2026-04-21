@@ -1,0 +1,94 @@
+name: Publish zone-fabric image
+
+on:
+  workflow_dispatch:
+    inputs:
+      godot-run-id:
+        description: "Run ID from multiplayer-fabric-godot CI holding linux-editor-mono (blank = latest)"
+        required: false
+        default: ""
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  zone-fabric:
+    name: Build and push zone-fabric
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout multiplayer-fabric-godot
+        uses: actions/checkout@v4
+        with:
+          repository: V-Sekai-fire/multiplayer-fabric-godot
+          ref: main
+          # Public repo — no token needed for checkout.
+
+      - name: Resolve godot run ID
+        id: run-id
+        env:
+          GH_TOKEN: ${{ secrets.GODOT_CI_TOKEN }}
+        run: |
+          INPUT="${{ inputs.godot-run-id }}"
+          if [ -n "$INPUT" ]; then
+            echo "value=$INPUT" >> "$GITHUB_OUTPUT"
+          else
+            RUN_ID=$(gh api \
+              "repos/V-Sekai-fire/multiplayer-fabric-godot/actions/artifacts?name=linux-editor-mono&per_page=1" \
+              --jq '.artifacts[0].workflow_run.id')
+            echo "value=$RUN_ID" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download linux-editor-mono
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-editor-mono
+          run-id: ${{ steps.run-id.outputs.value }}
+          repository: V-Sekai-fire/multiplayer-fabric-godot
+          # GODOT_CI_TOKEN: fine-grained PAT with actions:read on multiplayer-fabric-godot.
+          github-token: ${{ secrets.GODOT_CI_TOKEN }}
+          path: godot-bin/
+
+      - name: Mark Godot binary executable
+        run: chmod +x godot-bin/godot.linuxbsd.editor.x86_64.mono
+
+      - name: Prepare zone-fabric build context
+        run: |
+          mkdir -p docker-ctx-zone
+          cp -r godot-bin docker-ctx-zone/godot-bin
+          cp -r modules/multiplayer_fabric_mmog/tools/zone_console \
+                docker-ctx-zone/zone_console
+          cp .github/docker/Dockerfile.zone-fabric docker-ctx-zone/Dockerfile
+
+      - name: Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/zone-fabric
+          tags: |
+            type=sha,prefix=git-,format=short
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push zone-fabric
+        uses: docker/build-push-action@v6
+        with:
+          context: docker-ctx-zone
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          build-args: ELIXIR_IMAGE=elixir:1.17.3-otp-27
+          cache-from: type=gha,scope=zone-fabric
+          cache-to: type=gha,scope=zone-fabric,mode=max
