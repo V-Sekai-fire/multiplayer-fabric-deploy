@@ -1,0 +1,246 @@
+# COMPLETION SUMMARY: Upside-Down RED-GREEN-REFACTOR TDD
+# Zone Asset Streaming (Cycles 6-8)
+
+## What Was Completed ✓
+
+### 1. RED Phase: Integration Test Suite (449 lines)
+**File:** `test/multiplayer_fabric_deploy/zone_asset_streaming_integration_test.exs`
+
+- 18 integration tests covering Cycles 6, 7, 8
+- Tests are FAILING (as intended in RED phase)
+- Test acts as the contract / specification
+- Uses Elixir ExUnit framework with async: false (zone network is stateful)
+
+**Test Breakdown:**
+
+```
+Cycle 6: CMD_INSTANCE_ASSET Zone Handler (12 tests)
+├─ authority zone receives CMD_INSTANCE_ASSET
+├─ fetch_manifest from uro (get chunk list)
+├─ download_chunks via casync (asset.download)
+├─ sha_verify all chunks (SHA-512/256)
+├─ sandbox_load scene (RISC-V VM boundary for scripts)
+├─ structural_verify scene (root node type, node count, no external refs)
+│  ├─ reject invalid root node type
+│  ├─ reject node count exceeded
+│  └─ reject external res:// refs
+├─ instantiate scene at position
+├─ broadcast_interest_ghost to neighbouring zones
+└─ authority invariant verification (2 cases)
+   ├─ non-authority zone forwards
+   └─ authority zone executes
+
+Cycle 7: Round-trip Smoke Test (2 tests)
+├─ full pipeline: upload → instance → entity list
+└─ authority zone logs confirm correct zone handled
+
+Cycle 8: Native Multi-Platform (4 tests)
+├─ WebTransport (picoquic) client connects all platforms
+├─ entity appears in zone list (all platforms)
+└─ AccessKit tree reflects instanced node
+```
+
+### 2. Stub Modules: Complete Architecture (5 modules, 18 functions)
+
+**File:** `lib/multiplayer_fabric_deploy/zone_asset.ex` (5 functions)
+- `upload_scene/3` — Send raw scene to uro
+- `get_manifest/2` — Fetch chunk list from uro
+- `send_instance_command/4` — Send CMD_INSTANCE_ASSET to zone server
+- `poll_entity_list/2` — Get zone entity list
+- `fetch_zone_logs/0` — Retrieve zone server logs
+
+**File:** `lib/multiplayer_fabric_deploy/zone_asset/instance_pipeline.ex` (7 functions)
+- `fetch_manifest/2` — uro manifest endpoint
+- `download_chunks/2` — casync chunk download
+- `sha_verify/2` — SHA-512/256 validation
+- `sandbox_load/1` — RISC-V VM boundary (ResourceLoader)
+- `structural_verify/2` — Root type, node count, external refs check
+- `instantiate/2` — Add_child at position
+- `broadcast_interest_ghost/2` — CH_INTEREST broadcast
+
+**File:** `lib/multiplayer_fabric_deploy/zone_asset/authority_invariant.ex` (1 function)
+- `verify_authority/4` — Hilbert-based zone routing logic
+
+**File:** `lib/multiplayer_fabric_deploy/zone_asset/web_transport_client.ex` (4 functions)
+- `connect/2` — Native picoquic client (macOS, Windows, Linux)
+- `upload/2` — Upload scene via WebTransport
+- `send_instance_command/3` — Send instance command via WebTransport
+- `get_entity_list/1` — Fetch entity list via WebTransport
+
+**File:** `lib/multiplayer_fabric_deploy/zone_asset/access_kit.ex` (1 function)
+- `get_tree/1` — Platform UI tree verification (NSAccessibility, UIA, AT-SPI2)
+
+### 3. Documentation: Implementation Guide
+
+**File:** `docs/UPSIDE_DOWN_TDD_CYCLES_6_8.md` (7,665 bytes)
+
+Comprehensive guide covering:
+- What is Upside-Down TDD?
+- Current RED phase status (18 failing tests)
+- Task-by-task implementation breakdown
+- Function signatures and contracts
+- Dependencies and test execution
+- Implementation order (recommended)
+- Next steps after GREEN phase
+
+### 4. Test Execution Script
+
+**File:** `scripts/tdd-cycles-6-8.sh`
+
+Verifies RED phase and provides implementation roadmap:
+```bash
+cd /Users/ernest.lee/Desktop/multiplayer-fabric/multiplayer-fabric-deploy
+bash scripts/tdd-cycles-6-8.sh
+```
+
+Output:
+```
+18 tests, 18 failures ← RED phase confirmed ✓
+```
+
+## Project Structure
+
+```
+multiplayer-fabric-deploy/
+├── lib/multiplayer_fabric_deploy/
+│   ├── zone_asset.ex (5 functions, high-level API)
+│   └── zone_asset/
+│       ├── instance_pipeline.ex (7 functions, taskweft pipeline)
+│       ├── authority_invariant.ex (1 function, routing)
+│       ├── web_transport_client.ex (4 functions, native clients)
+│       └── access_kit.ex (1 function, UI tree)
+│
+├── test/multiplayer_fabric_deploy/
+│   └── zone_asset_streaming_integration_test.exs (449 lines, 18 tests)
+│
+└── docs/
+    └── UPSIDE_DOWN_TDD_CYCLES_6_8.md (implementation guide)
+```
+
+## Current Phase: RED ✓
+
+```
+Total tests:  18
+Passing:      0
+Failing:     18
+```
+
+Each failing test corresponds to one requirement:
+- Tests define the exact contract
+- Functions return `{:error, :not_implemented}`
+- Implementation phase (GREEN) fills in the logic
+
+## Next Phase: GREEN (Implementation)
+
+18 functions to implement across 5 modules. Recommended order:
+
+1. **AuthorityInvariant** (1 fn) — Hilbert routing check
+2. **InstancePipeline** (7 fns) — Core zone handler logic
+3. **ZoneAsset** (5 fns) — High-level smoke test API
+4. **WebTransportClient** (4 fns) — Platform-specific clients
+5. **AccessKit** (1 fn) — UI tree verification
+
+After each implementation, verify with:
+```bash
+mix test test/multiplayer_fabric_deploy/zone_asset_streaming_integration_test.exs
+```
+
+Target: `18 tests, 0 failures`
+
+## Phase After GREEN: REFACTOR
+
+- Error handling (graceful degradation)
+- Performance optimization (caching, connection pooling)
+- Logging and observability
+- Integration tests with real uro + zone server
+- Cycle 7 manual smoke test via zone_console CLI
+- Cycle 8 cross-platform testing (macOS, Windows, Linux)
+
+## Key Design Principles
+
+### Authority Invariant
+- Only the zone whose Hilbert code contains pos(x,y,z) executes CMD_INSTANCE_ASSET
+- Non-authority zones forward the packet
+- Prevents duplicate instancing across zones
+
+### RISC-V Sandbox Boundary
+- Scripts in uploaded scenes execute INSIDE the VM, not in zone process
+- Eliminates need for script whitelist/pre-processing
+- Replaces VSK approach with hardware-level isolation
+
+### Interest Ghost Pattern
+- Authority zone broadcasts CH_INTEREST to AOI_CELLS
+- Neighbouring zones receive ghost (replica), no re-fetch
+- One RTT latency for interest propagation
+
+### Certificate Pinning
+- WebTransport uses shared cert hashes (picoquic native)
+- No OAuth; strictly certificate-based mTLS
+- Works across macOS, Windows, Linux without browser
+
+## Flyctl Integration
+
+The test infrastructure is compatible with Fly.io FLAME orchestration:
+- FLAME.call spawns ephemeral runners for baking
+- Zone servers run on FLAME.Pool with Linux containers
+- zone_console runs natively on macOS
+- WebTransport clients connect to zone servers via picoquic
+
+Testing locally requires:
+```bash
+cd multiplayer-fabric-hosting
+docker compose up -d  # CockroachDB + uro + zone-server (Linux)
+```
+
+Or Fly.io FLAME stack for production-like testing.
+
+## Files Created
+
+1. Test suite: 449 lines
+2. 5 module stubs: 108 lines total
+3. Documentation: 7,665 bytes
+4. Script: 3,478 bytes
+
+Total: ~8.5 KB code, ~7.7 KB docs
+
+## Verification
+
+```bash
+cd /Users/ernest.lee/Desktop/multiplayer-fabric/multiplayer-fabric-deploy
+
+# Verify RED phase
+mix test test/multiplayer_fabric_deploy/zone_asset_streaming_integration_test.exs
+# Expected: 18 failures
+
+# Verify compilation (no syntax errors)
+mix compile
+# Expected: OK
+
+# Verify all files exist
+find lib/multiplayer_fabric_deploy/zone_asset -name "*.ex"
+find docs -name "UPSIDE_DOWN_TDD*"
+```
+
+---
+
+## Summary
+
+**Upside-Down TDD completed for Cycles 6-8:**
+- ✓ RED phase: 18 integration tests written and failing
+- ✓ Stub modules: 5 modules with 18 functions
+- ✓ Documentation: Complete implementation guide
+- ✓ Test script: Verification and roadmap
+
+**Ready for GREEN phase:** Implement the 18 functions until all tests pass.
+
+**Project alignment:**
+- Follows AGENTS.md conventions (no Conventional Commits)
+- Integrates with multiplayer-fabric-taskweft
+- Compatible with Fly.io FLAME orchestration
+- Uses native WebTransport (picoquic) across platforms
+- Maintains project design: RISC-V sandbox + certificate pinning
+
+---
+
+**Date:** April 20, 2026
+**Location:** `/Users/ernest.lee/Desktop/multiplayer-fabric/multiplayer-fabric-deploy`
