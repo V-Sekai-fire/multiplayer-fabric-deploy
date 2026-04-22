@@ -62,11 +62,6 @@ defmodule MultiplayerFabricDeploy.MockHTTPClient do
     e -> {:error, {:http_exception, inspect(e)}}
   end
 
-  defp sha256_of(data) do
-    :crypto.hash(:sha512_256, data)
-    |> Base.encode16(case: :lower)
-  end
-
   defp extract_chunk_id(url) do
     url
     |> String.split("/")
