@@ -21,6 +21,7 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
   This file defines the shape of what must be implemented.
   """
 
+  @moduletag :integration
   use ExUnit.Case, async: false  # Zone network is stateful
 
   alias MultiplayerFabricDeploy.ZoneAsset

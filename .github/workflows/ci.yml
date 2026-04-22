@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: MIT
+# Copyright (c) 2026 K. S. Ernest (iFire) Lee
+name: Deploy CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: mix test
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone taskweft sibling (path dep)
+        run: |
+          git clone --depth 1 \
+            https://github.com/V-Sekai-fire/multiplayer-fabric-taskweft.git \
+            ../multiplayer-fabric-taskweft
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+
+      - name: Cache Mix deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-deploy-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-deploy-mix-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile --warnings-as-errors
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Run tests (exclude live-server integration tests)
+        run: mix test --exclude integration --trace
