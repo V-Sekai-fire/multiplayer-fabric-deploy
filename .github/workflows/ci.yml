@@ -19,6 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install system dependencies (egit needs libgit2 + fmt)
+        run: sudo apt-get install -y libgit2-dev libfmt-dev
+
       - name: Clone taskweft sibling (path dep)
         run: |
           git clone --depth 1 \
