@@ -96,10 +96,15 @@ jobs:
       - name: Install dependencies
         run: MIX_ENV=prod mix deps.get --only prod
 
+      - name: Download ERTS for Burrito (CDN lacks 4-segment setup-beam versions)
+        run: |
+          curl -fsSL -o /tmp/erts_linux_x86_64.tar.gz \
+            https://beam-machine-universal.b-cdn.net/OTP-27.3.4/linux/x86_64/any/otp_27.3.4_linux_any_x86_64.tar.gz
+
       - name: Build Burrito release
         run: MIX_ENV=prod mix release
         env:
-          BURRITO_TARGET: linux
+          BURRITO_CUSTOM_ERTS: /tmp/erts_linux_x86_64.tar.gz
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4

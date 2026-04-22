@@ -27,11 +27,20 @@ defmodule MultiplayerFabricDeploy.MixProject do
         steps: [:assemble, &Burrito.wrap/1],
         burrito: [
           targets: [
-            linux: [os: :linux, cpu: :x86_64]
+            linux: [os: :linux, cpu: :x86_64] ++ linux_erts()
           ]
         ]
       ]
     ]
+  end
+
+  # setup-beam installs a 4-segment OTP version (e.g. 27.3.4.11) that Burrito's
+  # CDN does not carry. CI pre-downloads a 3-segment tarball and sets this env var.
+  defp linux_erts do
+    case System.get_env("BURRITO_CUSTOM_ERTS") do
+      nil -> []
+      path -> [custom_erts: path]
+    end
   end
 
   defp deps do
