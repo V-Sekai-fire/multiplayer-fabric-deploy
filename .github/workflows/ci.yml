@@ -94,7 +94,7 @@ jobs:
           restore-keys: ${{ runner.os }}-deploy-release-mix-
 
       - name: Install dependencies
-        run: MIX_ENV=prod mix deps.get --only prod
+        run: MIX_ENV=prod mix deps.get
 
       - name: Download ERTS for Burrito (CDN lacks 4-segment setup-beam versions)
         run: |
