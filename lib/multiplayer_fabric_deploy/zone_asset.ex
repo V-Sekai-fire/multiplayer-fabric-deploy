@@ -1,7 +1,7 @@
 defmodule MultiplayerFabricDeploy.ZoneAsset do
   @moduledoc """
   Zone asset streaming API.
-  
+
   Orchestrates the upload, baking, and instantiation pipeline across uro
   and zone servers. This is the high-level client interface for zone_console.
   """
@@ -10,7 +10,7 @@ defmodule MultiplayerFabricDeploy.ZoneAsset do
 
   @doc """
   Upload a raw scene (GLB or .tscn) to uro.
-  
+
   Returns {:ok, %{asset_id: uuid, ...}} or {:error, reason}.
   """
   def upload_scene(zone_url, scene_path, opts \\ []) do

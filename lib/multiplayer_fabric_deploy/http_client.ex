@@ -34,9 +34,14 @@ defmodule MultiplayerFabricDeploy.HTTPClient do
 
     body_str = if is_map(body), do: Jason.encode!(body), else: body
 
-    case :httpc.request(:post, {String.to_charlist(url), headers, content_type, body_str},
-                        [timeout: timeout], []) do
-      {:ok, {{_version, status, _reason}, _headers, response_body}} when status in [200, 201, 204] ->
+    case :httpc.request(
+           :post,
+           {String.to_charlist(url), headers, content_type, body_str},
+           [timeout: timeout],
+           []
+         ) do
+      {:ok, {{_version, status, _reason}, _headers, response_body}}
+      when status in [200, 201, 204] ->
         {:ok, %{status: status, body: response_body}}
 
       {:ok, {{_version, status, _reason}, _headers, response_body}} ->

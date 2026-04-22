@@ -1,7 +1,7 @@
 defmodule MultiplayerFabricDeploy.ZoneAsset.AccessKit do
   @moduledoc """
   AccessKit tree verification for Cycle 8 native platform testing.
-  
+
   Verifies that instanced nodes are reflected correctly in native UI trees:
     - macOS: NSAccessibility framework
     - Windows: UIA (UI Automation)

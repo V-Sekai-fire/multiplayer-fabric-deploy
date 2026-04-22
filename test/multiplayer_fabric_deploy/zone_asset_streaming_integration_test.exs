@@ -21,7 +21,8 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
   This file defines the shape of what must be implemented.
   """
 
-  use ExUnit.Case, async: false  # Zone network is stateful
+  # Zone network is stateful
+  use ExUnit.Case, async: false
   @moduletag :integration
 
   alias MultiplayerFabricDeploy.ZoneAsset
@@ -97,6 +98,7 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
     test "authority zone verifies SHA-512/256 per chunk" do
       # GIVEN: downloaded chunks
       chunks = %{"chunk-a" => "data-a", "chunk-b" => "data-b"}
+
       manifest = %{
         "chunks" => [
           %{"id" => "chunk-a", "sha512_256" => compute_sha("data-a")},
@@ -121,8 +123,10 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
 
       # THEN: scene object is valid and sandboxed
       assert is_map(scene_object)
-      assert scene_object.source == :sandbox  # proves RISC-V boundary
-      assert scene_object.scripted == true  # scripts ran inside VM
+      # proves RISC-V boundary
+      assert scene_object.source == :sandbox
+      # scripts ran inside VM
+      assert scene_object.scripted == true
     end
 
     test "authority zone verifies scene structure (root node type, node count, no external refs)" do
@@ -143,7 +147,8 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
     test "structural_verify rejects invalid root node type" do
       # GIVEN: a scene with forbidden root type
       scene = %{
-        root_node_type: "GDScript",  # Not allowed
+        # Not allowed
+        root_node_type: "GDScript",
         node_count: 10,
         has_external_refs: false
       }
@@ -159,7 +164,8 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
       # GIVEN: a scene exceeding node limit
       scene = %{
         root_node_type: "Node3D",
-        node_count: 10_001,  # Exceeds MAX_ASSET_NODES (10k)
+        # Exceeds MAX_ASSET_NODES (10k)
+        node_count: 10_001,
         has_external_refs: false
       }
 
@@ -175,7 +181,8 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
       scene = %{
         root_node_type: "Node3D",
         node_count: 50,
-        has_external_refs: true  # Violates safety boundary
+        # Violates safety boundary
+        has_external_refs: true
       }
 
       # WHEN: authority zone calls structural_verify
@@ -265,8 +272,11 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
       #   instance <returned-id> 0.0 1.0 0.0
 
       # Step 1: Upload raw scene
-      scene_path = System.get_env("TEST_SCENE_PATH",
-        "multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn")
+      scene_path =
+        System.get_env(
+          "TEST_SCENE_PATH",
+          "multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn"
+        )
 
       {:ok, upload_response} = ZoneAsset.upload_scene(zone_url, scene_path, cert_pin: pin)
       asset_id = upload_response.asset_id
@@ -314,12 +324,12 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
 
       # THEN: logs show authority zone (not a forwarding zone) handled CMD_INSTANCE_ASSET
       assert Enum.any?(logs, fn log ->
-        String.contains?(log, [
-          "CMD_INSTANCE_ASSET",
-          "authority",
-          to_string(authority_zone_id)
-        ])
-      end)
+               String.contains?(log, [
+                 "CMD_INSTANCE_ASSET",
+                 "authority",
+                 to_string(authority_zone_id)
+               ])
+             end)
     end
   end
 
@@ -344,8 +354,12 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
     end
 
     test "entity appears in zone list on all native platforms" do
-      scene_path = System.get_env("TEST_SCENE_PATH",
-        "multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn")
+      scene_path =
+        System.get_env(
+          "TEST_SCENE_PATH",
+          "multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn"
+        )
+
       pos = {0.0, 1.0, 0.0}
 
       Enum.each(@platforms, fn platform ->
@@ -375,8 +389,12 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
     test "AccessKit tree reflects instanced node on platforms with screen reader" do
       # macOS and Windows support AccessKit for native UI tree verification
       # (Linux uses Linux AT-SPI2, also supported)
-      scene_path = System.get_env("TEST_SCENE_PATH",
-        "multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn")
+      scene_path =
+        System.get_env(
+          "TEST_SCENE_PATH",
+          "multiplayer-fabric-humanoid-project/humanoid/scenes/mire.tscn"
+        )
+
       pos = {0.0, 1.0, 0.0}
 
       [:macos, :windows, :linux]
@@ -441,6 +459,7 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
   defp find_ax_node_by_label(ax_tree, label) do
     # Traverse AccessKit tree to find node with matching label
     nodes = ax_tree[:nodes] || ax_tree["nodes"] || []
+
     Enum.find(nodes, fn node ->
       node[:label] == label or node["label"] == label
     end)

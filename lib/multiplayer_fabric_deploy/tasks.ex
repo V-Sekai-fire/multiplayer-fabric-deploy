@@ -9,34 +9,43 @@ defmodule MultiplayerFabricDeploy.Tasks do
         id: :run_all,
         name: "run-all",
         desc: "Plan and run full pipeline (web + linux + macos) via RECTGTN planner",
-        run: {:elixir, fn parent ->
-          case MultiplayerFabricDeploy.Planner.planned_tasks() do
-            {:error, reason} ->
-              send(parent, {:output_line, "Planner error: #{reason}"})
-              send(parent, {:task_done, 1})
+        run:
+          {:elixir,
+           fn parent ->
+             case MultiplayerFabricDeploy.Planner.planned_tasks() do
+               {:error, reason} ->
+                 send(parent, {:output_line, "Planner error: #{reason}"})
+                 send(parent, {:task_done, 1})
 
-            {:ok, tasks} ->
-              send(parent, {:output_line, "Plan: #{Enum.map_join(tasks, " → ", & &1.name)}"})
-              outer = self()
-              exit_code =
-                Enum.reduce_while(tasks, 0, fn task, _ ->
-                  send(parent, {:output_line, "▶ #{task.name}"})
-                  # Proxy: forward all messages to real parent, capture exit_status
-                  proxy = spawn(fn -> proxy_loop(parent, outer) end)
-                  case task.run do
-                    {:elixir, f} -> f.(proxy)
-                    {:bash, script} -> MultiplayerFabricDeploy.Runner.run_bash_sync(script, proxy)
-                  end
-                  receive do
-                    {:step_done, code} ->
-                      if code == 0, do: {:cont, 0}, else: {:halt, code}
-                  after
-                    600_000 -> {:halt, 1}
-                  end
-                end)
-              send(parent, {:task_done, exit_code})
-          end
-        end}
+               {:ok, tasks} ->
+                 send(parent, {:output_line, "Plan: #{Enum.map_join(tasks, " → ", & &1.name)}"})
+                 outer = self()
+
+                 exit_code =
+                   Enum.reduce_while(tasks, 0, fn task, _ ->
+                     send(parent, {:output_line, "▶ #{task.name}"})
+                     # Proxy: forward all messages to real parent, capture exit_status
+                     proxy = spawn(fn -> proxy_loop(parent, outer) end)
+
+                     case task.run do
+                       {:elixir, f} ->
+                         f.(proxy)
+
+                       {:bash, script} ->
+                         MultiplayerFabricDeploy.Runner.run_bash_sync(script, proxy)
+                     end
+
+                     receive do
+                       {:step_done, code} ->
+                         if code == 0, do: {:cont, 0}, else: {:halt, code}
+                     after
+                       600_000 -> {:halt, 1}
+                     end
+                   end)
+
+                 send(parent, {:task_done, exit_code})
+             end
+           end}
       },
       %__MODULE__{
         id: :fetch_godot,
@@ -126,16 +135,20 @@ defmodule MultiplayerFabricDeploy.Tasks do
         id: :prepare_exports,
         name: "prepare-exports",
         desc: "Clear and recreate export_windows / export_linuxbsd directories",
-        run: {:bash, "rm -rf export_windows export_linuxbsd && mkdir -p export_windows export_linuxbsd"}
+        run:
+          {:bash,
+           "rm -rf export_windows export_linuxbsd && mkdir -p export_windows export_linuxbsd"}
       },
       %__MODULE__{
         id: :copy_binaries,
         name: "copy-binaries",
         desc: "Copy built templates to export directories",
-        run: {:bash, """
-        cp templates/windows_release_x86_64.exe export_windows/multiplayer_fabric_windows.exe
-        cp templates/linux_release.x86_64 export_linuxbsd/multiplayer_fabric_linuxbsd
-        """}
+        run:
+          {:bash,
+           """
+           cp templates/windows_release_x86_64.exe export_windows/multiplayer_fabric_windows.exe
+           cp templates/linux_release.x86_64 export_linuxbsd/multiplayer_fabric_linuxbsd
+           """}
       },
       %__MODULE__{
         id: :generate_build_constants,
@@ -226,6 +239,7 @@ defmodule MultiplayerFabricDeploy.Tasks do
     receive do
       {:task_done, code} ->
         send(step_owner, {:step_done, code})
+
       msg ->
         send(real_parent, msg)
         proxy_loop(real_parent, step_owner)
