@@ -54,3 +54,56 @@ jobs:
 
       - name: Run tests (exclude live-server integration tests)
         run: mix test --exclude integration --trace
+
+  release:
+    name: Burrito release (linux x86_64)
+    runs-on: ubuntu-latest
+    needs: test
+    if: github.ref == 'refs/heads/main'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies (egit needs libgit2 + fmt)
+        run: sudo apt-get install -y libgit2-dev libfmt-dev
+
+      - name: Clone taskweft sibling (path dep)
+        run: |
+          git clone --depth 1 \
+            https://github.com/V-Sekai-fire/multiplayer-fabric-taskweft.git \
+            ../multiplayer-fabric-taskweft
+
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+
+      - name: Set up Zig
+        uses: mlugg/setup-zig@v2
+        with:
+          version: "0.15.0"
+
+      - name: Cache Mix deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-deploy-release-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-deploy-release-mix-
+
+      - name: Install dependencies
+        run: MIX_ENV=prod mix deps.get --only prod
+
+      - name: Build Burrito release
+        run: MIX_ENV=prod mix release
+        env:
+          BURRITO_TARGET: linux
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: multiplayer-fabric-deploy-linux-x86_64
+          path: burrito_out/multiplayer_fabric_deploy_linux
+          if-no-files-found: error

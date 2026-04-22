@@ -1,6 +1,12 @@
 defmodule MultiplayerFabricDeploy do
   alias MultiplayerFabricDeploy.{Config, Runner, Tasks, Tui}
 
+  def start(_, _) do
+    main(Burrito.Util.Args.argv())
+    System.halt(0)
+    {:ok, self()}
+  end
+
   def main(_args) do
     File.mkdir_p!(Config.logs_dir())
 

@@ -18,14 +18,18 @@ defmodule MultiplayerFabricDeploy.MixProject do
   defp elixirc_paths(_), do: ["lib"]
 
   def application do
-    [extra_applications: [:logger]]
+    [mod: {MultiplayerFabricDeploy, []}, extra_applications: [:logger]]
   end
 
   defp releases do
     [
       multiplayer_fabric_deploy: [
-        steps: [:assemble],
-        strip_beams: true
+        steps: [:assemble, &Burrito.wrap/1],
+        burrito: [
+          targets: [
+            linux: [os: :linux, cpu: :x86_64]
+          ]
+        ]
       ]
     ]
   end
@@ -34,7 +38,8 @@ defmodule MultiplayerFabricDeploy.MixProject do
     [
       {:ex_ratatui, "~> 0.7"},
       {:egit, "~> 0.1"},
-      {:taskweft, path: "../multiplayer-fabric-taskweft"}
+      {:taskweft, path: "../multiplayer-fabric-taskweft"},
+      {:burrito, "~> 1.5"}
     ]
   end
 end
