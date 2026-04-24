@@ -46,6 +46,7 @@ defmodule MultiplayerFabricDeploy.MixProject do
   defp deps do
     [
       {:ex_ratatui, "~> 0.7"},
+      {:fine, "~> 0.1"},
       {:egit, "~> 0.1"},
       {:taskweft, path: "../multiplayer-fabric-taskweft"},
       {:burrito, "~> 1.5"}
