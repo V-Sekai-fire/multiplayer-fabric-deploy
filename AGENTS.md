@@ -31,7 +31,6 @@ not carry.
 | `lib/multiplayer_fabric_deploy.ex` | TUI event loop (ex_ratatui) |
 | `lib/multiplayer_fabric_deploy/tasks.ex` | Registry of deploy tasks |
 | `lib/multiplayer_fabric_deploy/runner.ex` | Async task execution, stdout streaming |
-| `lib/multiplayer_fabric_deploy/hilbert_curve.ex` | Elixir port of 3D Hilbert curve (proof source: predictive-bvh) |
 
 ## Conventions
 
