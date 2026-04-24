@@ -218,7 +218,6 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
       assert broadcast_msg.position == pos
       assert broadcast_msg.replica_type == :ghost
     end
-
   end
 
   # ============================================================================
