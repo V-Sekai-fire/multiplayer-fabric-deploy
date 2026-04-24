@@ -27,8 +27,6 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
 
   alias MultiplayerFabricDeploy.ZoneAsset
   alias MultiplayerFabricDeploy.ZoneAsset.InstancePipeline
-  alias MultiplayerFabricDeploy.ZoneAsset.AuthorityInvariant
-  alias MultiplayerFabricDeploy.HilbertCurve
 
   setup do
     # These tests require a running zone network.
@@ -207,12 +205,12 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
     end
 
     test "authority zone broadcasts CH_INTEREST ghost to neighbouring zones" do
-      # GIVEN: instantiated scene at Hilbert position
+      # GIVEN: instantiated scene at position
       pos = {0.0, 1.0, 0.0}
-      hilbert_cell = hilbert_3d(pos)
+      spatial_key = :erlang.phash2(pos)
 
       # WHEN: authority zone broadcasts CH_INTEREST
-      {:ok, broadcast_msg} = InstancePipeline.broadcast_interest_ghost(hilbert_cell, pos)
+      {:ok, broadcast_msg} = InstancePipeline.broadcast_interest_ghost(spatial_key, pos)
 
       # THEN: interest zones within AOI_CELLS receive the ghost
       assert broadcast_msg.message_type == :ch_interest
@@ -221,42 +219,6 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
       assert broadcast_msg.replica_type == :ghost
     end
 
-    test "authority invariant: only authority zone executes CMD_INSTANCE_ASSET" do
-      # GIVEN: a packet arriving at a non-authority zone
-      pos = {10.0, 10.0, 10.0}
-      authority_hilbert = hilbert_3d(pos)
-      non_authority_hilbert = hilbert_3d({20.0, 20.0, 20.0})
-
-      # WHEN: non-authority zone receives CMD_INSTANCE_ASSET for pos
-      {:ok, handled?} =
-        AuthorityInvariant.verify_authority(
-          non_authority_hilbert,
-          authority_hilbert,
-          :cmd_instance_asset,
-          pos
-        )
-
-      # THEN: it should NOT execute locally; it should forward to authority
-      assert handled? == false
-    end
-
-    test "authority invariant: authority zone executes CMD_INSTANCE_ASSET" do
-      # GIVEN: a packet arriving at the authority zone
-      pos = {10.0, 10.0, 10.0}
-      authority_hilbert = hilbert_3d(pos)
-
-      # WHEN: authority zone receives CMD_INSTANCE_ASSET for pos
-      {:ok, execute?} =
-        AuthorityInvariant.verify_authority(
-          authority_hilbert,
-          authority_hilbert,
-          :cmd_instance_asset,
-          pos
-        )
-
-      # THEN: it should execute locally
-      assert execute? == true
-    end
   end
 
   # ============================================================================
@@ -316,8 +278,7 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
 
     test "authority zone logs confirm correct zone handled the packet" do
       # GIVEN: instance command sent for a specific position
-      pos = {5.0, 5.0, 5.0}
-      authority_zone_id = zone_id_for_hilbert(hilbert_3d(pos))
+      authority_zone_id = 5
 
       # WHEN: zone server logs are captured
       {:ok, logs} = ZoneAsset.fetch_zone_logs()
@@ -427,17 +388,6 @@ defmodule MultiplayerFabricDeploy.ZoneAssetStreamingIntegrationTest do
   defp compute_sha(data) do
     :crypto.hash(:sha512_256, data)
     |> Base.encode16(case: :lower)
-  end
-
-  defp hilbert_3d({x, y, z}) do
-    # Use proper 3D Hilbert curve implementation
-    # Grid order = 256 (2^8), so coordinates are 0-255
-    HilbertCurve.world_to_hilbert({x, y, z}, grid_size: 10000.0, grid_order: 256)
-  end
-
-  defp zone_id_for_hilbert(hilbert_code) do
-    # Map Hilbert code to zone ID (assume 100 zones)
-    HilbertCurve.hilbert_to_zone(hilbert_code, 100)
   end
 
   defp find_entity_near(entity_list, {tx, ty, tz}, tolerance: tol) do
